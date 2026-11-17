@@ -1,13 +1,13 @@
 # PS5 Harness — master plan
 
-Status: **P0 and P1 complete on the host.** P2 onward is blocked on a Linux
-cross-build environment and a console; nothing has run on hardware.
+Status: **P0 and P1 complete; P2's artifact builds on the host.** Boot is
+blocked on a console, so P3 onward has not started. Nothing has run on hardware.
 
 | Phase | State |
 |---|---|
 | P0 Repo hygiene | Done — license, `.gitignore`, `VERSION`, CI workflow, first commit. CI has not executed on a remote. |
 | P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean. |
-| P2 Console bring-up | **Blocked** — needs Linux/WSL, the payload SDK and a console. |
+| P2 Console bring-up | Partial — the payload SDK cross-builds a fake-SELF `eboot.bin` on macOS (`make -C platform/ps5`); boot is blocked on a console. |
 | P3 Capabilities | **Blocked** — hardware only (TLS, `dlopen`, elevated write). |
 | P4 Tool surface | Partial — streaming downloader with resume and sha256 exists and is unit-tested; install/launch need P3. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
@@ -24,13 +24,13 @@ cross-build environment and a console; nothing has run on hardware.
 ## What exists today
 
 `ps5-harness` builds on macOS with `-Wall -Wextra` and no warnings. `make test`
-runs 6 tests. Four built-in tools (`fs_list`, `fs_read`, `fs_write`,
+runs four host suites. Four built-in tools (`fs_list`, `fs_read`, `fs_write`,
 `http_get`), manifest compilation (`examples/endpoints/archive.json` → 3 tools),
 and a `.so` plugin loading through the C ABI all work. One live HTTPS call to
 `archive.org/advancedsearch.php` returned real records.
 
-That is a proof of the extension contract, not a product. Everything in
-`docs/AUDIT.md` is unfixed, and no PS5 artifact exists.
+That is a proof of the extension contract, not a product. The host defects in
+`docs/AUDIT.md` are fixed; the console artifact builds but has never booted.
 
 ## Sequencing rule
 
@@ -81,6 +81,12 @@ to USB, `sce_sys/` assets, and a real `param.json` with a unique title ID.
 
 Completion: `eboot.bin` boots on the console and writes a log line containing
 its build id and the console's free space. Nothing else is required of it yet.
+
+State: the toolchain decision is recorded — macOS host, SDK zip sha256
+`5fac6409…` (v0.45), LLVM 23.1.4 (details in `platform/ps5/BUILD.md`).
+`make -C platform/ps5` builds `platform/ps5/bringup.cpp` to an x86-64 FreeBSD
+ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The
+remaining criterion — boot and log free space on the console — needs hardware.
 
 ## P3 — Console capabilities
 

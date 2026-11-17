@@ -148,16 +148,22 @@ plugin directories you would run as a program.
 
 ## Building for the PS5
 
-Not done. `platform/ps5/param.json` and the design are in place; the artifact
-does not exist and nothing here has run on a console.
+Partly done. `make -C platform/ps5` cross-compiles the P2 bring-up payload
+(`platform/ps5/bringup.cpp`) to an x86-64 FreeBSD ELF and packs a fake-SELF
+`eboot.bin` with the SDK's `make_fself.py`. `platform/ps5/BUILD.md` records the
+exact SDK and LLVM versions, the command, and the console steps. Nothing has
+booted on a console.
 
-1. Cross-compile with the [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk)
-   on Ubuntu/Debian or WSL — the SDK does not target macOS.
-2. Link `libcurl` from PacBrew's pinned ports (`PACBREW_PACKAGES`).
-3. Rename the entry to `eboot.bin`, add `sce_sys/` assets, and change the
-   placeholder `PPSA99177` title ID in `platform/ps5/param.json`.
-4. Ship a CA bundle; verify the console clock before the first TLS request.
-5. Plugins become `.so` files loaded with `dlopen` — confirm on your firmware.
+Remaining:
+
+1. Link `libcurl` from PacBrew's pinned ports when the full harness is built for
+   the target. Those archives are built for the payload SDK's libc, not a native
+   title, and need the `fcntl` shim documented upstream.
+2. Change the placeholder `PPSA99177` title ID in `platform/ps5/param.json`, add
+   real `sce_sys/` assets (512x512 PNG, BC7 DDS), and check the fake-SELF
+   `--paid`/`--ptype` values against your loader.
+3. Ship a CA bundle; verify the console clock before the first TLS request.
+4. Plugins become `.so` files loaded with `dlopen` — confirm on your firmware.
 
 ## Status
 
@@ -180,11 +186,14 @@ Verified on the host:
   with a clean error; an unknown tool becomes a tool-level error the loop
   recovers from; the tool deadline returns without waiting for the abandoned
   handler
+- **Cross-build for the console target**: `make -C platform/ps5` compiles the P2
+  bring-up payload to an x86-64 FreeBSD ELF and packs a fake-SELF `eboot.bin`
+  (SDK v0.45, LLVM 23.1.4 on macOS)
 
 Not verified or not built:
 
-- **Nothing has run on a PS5.** No cross-build, no `dlopen` or TLS test on
-  hardware, no packaging.
+- **Nothing has run on a PS5.** The cross-build produces `eboot.bin`, but it
+  has never been booted; no `dlopen` or TLS test on hardware, no packaging.
 - **CI has not executed.** The workflow is committed; no remote run yet.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
