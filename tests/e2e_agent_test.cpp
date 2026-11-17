@@ -399,8 +399,12 @@ void test_cli_round_trip() {
   assert(first.headers.at("authorization") == "Bearer " + secret);
   assert(first.body.find("\"fs_read\"") != std::string::npos);
   assert(first.body.find("\"tools\"") != std::string::npos);
+  // The user turn reached the provider.
+  assert(first.body.find("read the notes") != std::string::npos);
 
   const Recorded second = stub.request(1);
+  // History is intact: the assistant turn that requested the tool is resent.
+  assert(second.body.find("\"role\":\"assistant\"") != std::string::npos);
   assert(second.body.find("\"role\":\"tool\"") != std::string::npos);
   assert(second.body.find("\"tool_call_id\":\"call_abc\"") != std::string::npos);
   // Redaction ran inside the real agent before the message reached the provider.

@@ -34,7 +34,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # core + hardening suites
+make test           # policy-surface, core, hardening and end-to-end suites
 make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
@@ -164,18 +164,22 @@ does not exist and nothing here has run on a console.
 Verified on the host:
 
 - Clean build, `-Wall -Wextra`, no warnings
-- `make test`: core suite + hardening suite (paths, redaction, sha256, streaming
-  download with resume/verify, body cap, URL policy, deadlines)
+- `make test`: policy-surface, core, hardening (paths, redaction, sha256,
+  streaming download with resume/verify, body cap, URL policy, deadlines) and
+  end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
   clean
 - Plugin ABI v2: an out-of-tree `.so` loads, registers and runs
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
-- **Full provider round trip** through the CLI binary against a local
+- **Full provider round trip** through the test build of the CLI
+  (`build/harness_e2e`, same sources plus the test hook) against a local
   OpenAI-compatible stub: user turn → assistant `tool_calls` → tool result with
-  the matching `tool_call_id` → second provider call that sees it → final
-  assistant message. Malformed JSON, an unknown tool and a truncated response
-  each produce a clean error, and the tool deadline returns without blocking
+  the matching `tool_call_id` → second provider call that resends the history →
+  final assistant message. Malformed JSON and a truncated response end the turn
+  with a clean error; an unknown tool becomes a tool-level error the loop
+  recovers from; the tool deadline returns without waiting for the abandoned
+  handler
 
 Not verified or not built:
 
