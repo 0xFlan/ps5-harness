@@ -1,0 +1,32 @@
+{
+  "id": "archive",
+  "description": "Internet Archive",
+  "baseUrl": "https://archive.org",
+  "auth": { "type": "none" },
+  "headers": { "Accept": "application/json" },
+  "operations": {
+    "search": {
+      "method": "GET",
+      "path": "/advancedsearch.php",
+      "query": {
+        "q": "{{query}}",
+        "rows": "{{rows}}",
+        "output": "json"
+      },
+      "pick": "response.docs",
+      "description": "Search the Internet Archive catalogue. The query uses archive.org syntax, e.g. 'collection:classicpcgames AND doom'."
+    },
+    "metadata": {
+      "method": "GET",
+      "path": "/metadata/{{identifier}}",
+      "pick": "metadata",
+      "description": "Fetch metadata for one archive.org item by identifier."
+    },
+    "files": {
+      "method": "GET",
+      "path": "/metadata/{{identifier}}",
+      "pick": "files",
+      "description": "List the downloadable files of one archive.org item."
+    }
+  }
+}

@@ -1,0 +1,11 @@
+build/
+dist/
+.deps/
+*.o
+*.dylib
+*.so
+examples/plugins/**/*.so
+examples/plugins/**/*.dylib
+fuzz/corpus/
+.DS_Store
+config.json
