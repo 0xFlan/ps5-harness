@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 
 #include <cstdint>
@@ -19,6 +20,18 @@ std::string lowercase(const std::string& value) {
     out.push_back(static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c));
   }
   return out;
+}
+
+bool is_loopback_address(const std::string& ip) {
+  in_addr v4{};
+  if (::inet_pton(AF_INET, ip.c_str(), &v4) == 1) {
+    return ((ntohl(v4.s_addr) >> 24) & 0xFF) == 127;
+  }
+  in6_addr v6{};
+  if (::inet_pton(AF_INET6, ip.c_str(), &v6) == 1) {
+    return IN6_IS_ADDR_LOOPBACK(&v6) != 0;
+  }
+  return false;
 }
 
 bool is_ip_literal(const std::string& host, bool* is_v6) {
@@ -148,11 +161,19 @@ UrlPolicy::Decision UrlPolicy::check(const std::string& url) const {
     return decision;
   }
   const std::string scheme = lowercase(url.substr(0, scheme_end));
-  if (https_only && scheme != "https") {
+#if defined(PS5H_TEST_HOOKS)
+  const bool cleartext_hook = test_allow_loopback_cleartext;
+#else
+  const bool cleartext_hook = false;
+#endif
+
+  // The strict path still reports the scheme (not a generic parse failure) so
+  // `file:///etc/passwd` reads as a scheme refusal.
+  if (https_only && scheme != "https" && !cleartext_hook) {
     decision.reason = "scheme must be https, got \"" + scheme + "\"";
     return decision;
   }
-  if (!https_only && scheme != "https" && scheme != "http") {
+  if (!https_only && scheme != "https" && scheme != "http" && !cleartext_hook) {
     decision.reason = "unsupported scheme \"" + scheme + "\"";
     return decision;
   }
@@ -160,6 +181,15 @@ UrlPolicy::Decision UrlPolicy::check(const std::string& url) const {
   ParsedUrl parsed;
   if (!parse_url(url, &parsed)) {
     decision.reason = "malformed URL";
+    return decision;
+  }
+
+  // The test hook is narrow on purpose: loopback only, cleartext only.
+  const bool loopback_host =
+      parsed.host == "localhost" || is_loopback_address(parsed.host);
+  const bool loopback_override = cleartext_hook && loopback_host;
+  if (cleartext_hook && scheme != "https" && !loopback_host) {
+    decision.reason = "scheme must be https, got \"" + scheme + "\"";
     return decision;
   }
 
@@ -184,7 +214,7 @@ UrlPolicy::Decision UrlPolicy::check(const std::string& url) const {
   }
 
   if (is_ip_literal(parsed.host, nullptr)) {
-    if (deny_private_ranges && is_private_address(parsed.host)) {
+    if (deny_private_ranges && !loopback_override && is_private_address(parsed.host)) {
       decision.reason = "host \"" + parsed.host + "\" is a private or loopback address";
       return decision;
     }
@@ -225,7 +255,7 @@ UrlPolicy::Decision UrlPolicy::check(const std::string& url) const {
     if (first_ip.empty()) {
       first_ip = buffer;
     }
-    if (deny_private_ranges && is_private_address(buffer)) {
+    if (deny_private_ranges && !loopback_override && is_private_address(buffer)) {
       blocked = true;
       if (blocked_ip.empty()) {
         blocked_ip = buffer;
@@ -246,5 +276,13 @@ UrlPolicy::Decision UrlPolicy::check(const std::string& url) const {
   decision.resolved_ip = first_ip;
   return decision;
 }
+
+#if defined(PS5H_TEST_HOOKS)
+UrlPolicy UrlPolicy::test_only_loopback_policy() {
+  UrlPolicy policy;
+  policy.test_allow_loopback_cleartext = true;
+  return policy;
+}
+#endif
 
 }  // namespace ps5h

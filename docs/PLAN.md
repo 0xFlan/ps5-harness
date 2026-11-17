@@ -12,7 +12,7 @@ cross-build environment and a console; nothing has run on hardware.
 | P4 Tool surface | Partial — streaming downloader with resume and sha256 exists and is unit-tested; install/launch need P3. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
 | P6 UX | Not started. |
-| P7 Audit + release | Partial — threat model, fuzz and ASan done; hardware audit and release engineering pending. |
+| P7 Audit + release | Partial — threat model, fuzz, ASan and the provider round trip done; hardware audit and release engineering pending. |
 
 | Document | Purpose |
 |---|---|

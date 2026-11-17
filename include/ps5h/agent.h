@@ -3,6 +3,7 @@
 #include <string>
 
 #include "ps5h/core.h"
+#include "ps5h/policy.h"
 #include "ps5h/secrets.h"
 
 namespace ps5h {
@@ -23,7 +24,7 @@ struct AgentOptions {
 class Agent {
  public:
   Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env, LogFn log,
-        LogFn say, SecretSet secrets);
+        LogFn say, UrlPolicy policy, SecretSet secrets);
 
   bool run(const std::string& prompt, const AgentOptions& options);
 
@@ -36,6 +37,7 @@ class Agent {
   EnvFn env_;
   LogFn log_;
   LogFn say_;
+  UrlPolicy policy_;
   SecretSet secrets_;
 };
 

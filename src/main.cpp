@@ -325,6 +325,12 @@ void print_usage() {
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
       "  --help               This message\n\n"
+#if defined(PS5H_TEST_HOOKS)
+      "TEST BUILD ONLY:\n"
+      "  --test-allow-loopback-cleartext\n"
+      "                       Permit cleartext HTTP to a loopback provider stub.\n"
+      "                       Absent from production builds.\n\n"
+#endif
       "Paths are confined to the roots in the config. Reads are additionally denied for\n"
       "configuration, credential and state files.\n");
 }
@@ -341,6 +347,8 @@ int main(int argc, char** argv) {
   std::string call_tool;
   std::string call_args = "{}";
   bool show_tools = false;
+  bool base_url_from_flag = false;
+  bool model_from_flag = false;
   int max_steps = 12;
 
   ModelConfig config;
@@ -369,12 +377,18 @@ int main(int argc, char** argv) {
       prompt = next("--prompt");
     } else if (arg == "--model") {
       config.model = next("--model");
+      model_from_flag = true;
     } else if (arg == "--base-url") {
       config.base_url = next("--base-url");
+      base_url_from_flag = true;
     } else if (arg == "--max-steps") {
       max_steps = std::atoi(next("--max-steps").c_str());
     } else if (arg == "--tools") {
       show_tools = true;
+#if defined(PS5H_TEST_HOOKS)
+    } else if (arg == "--test-allow-loopback-cleartext") {
+      policy = UrlPolicy::test_only_loopback_policy();
+#endif
     } else if (arg == "--call") {
       call_tool = next("--call");
     } else if (arg == "--args") {
@@ -409,8 +423,14 @@ int main(int argc, char** argv) {
       Json root = Json::parse(text);
       const Json& model = root["model"];
       if (model.is_object()) {
-        config.base_url = model["base_url"].as_string(config.base_url);
-        config.model = model["model"].as_string(config.model);
+        // An explicit flag wins over the config file: otherwise `--base-url`
+        // silently reverts to whatever the config names.
+        if (!base_url_from_flag) {
+          config.base_url = model["base_url"].as_string(config.base_url);
+        }
+        if (!model_from_flag) {
+          config.model = model["model"].as_string(config.model);
+        }
         config.api_key_env = model["api_key_env"].as_string(config.api_key_env);
         if (model["temperature"].is_number()) {
           config.temperature = model["temperature"].as_number(config.temperature);
@@ -540,6 +560,6 @@ int main(int argc, char** argv) {
   options.max_steps = max_steps;
   options.system_prompt = system_prompt;
 
-  Agent agent(config, http, registry, env, log, say, secrets);
+  Agent agent(config, http, registry, env, log, say, policy, secrets);
   return agent.run(prompt, options) ? 0 : 1;
 }

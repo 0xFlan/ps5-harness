@@ -233,6 +233,47 @@ Run on the host, macOS, Apple clang, `-Wall -Wextra`:
 
 Not verified: anything requiring a PS5, and a real model round trip.
 
+## Round-trip findings (P7)
+
+Building the provider round-trip test exposed two more defects. Both are fixed,
+with the tests that caught them now in `make test`.
+
+| # | Issue | S | Status |
+|---|---|---|---|
+| A9 | The tool deadline did not actually bound a call | S2 | **Closed** |
+| A10 | CLI flags were overwritten by the config file | S2 | **Closed** |
+
+### A9 — deadline blocked until the handler finished (S2)
+
+**Where:** `src/core.cpp` `run_with_deadline`, which used `std::async`.
+
+**Why it was wrong:** the future `std::async` returns blocks in its destructor.
+On timeout the function returned an error, but the future's destruction still
+joined the worker — so a hung plugin wedged the loop for as long as it hung,
+and reported a timeout only after the hang ended. The deadline was cosmetic.
+
+**Fix:** a detached thread plus a shared `std::promise`/`std::future`. On expiry
+the function returns immediately; the abandoned worker owns its own copy of the
+handler and arguments and writes into a promise nobody is waiting for, which it
+handles. **Proof:** `test_deadline_returns_without_blocking` asserts the tool
+result reads `timed out after 80 ms` and the whole run finishes in under 400 ms
+while the handler sleeps 600 ms.
+
+### A10 — `--base-url` silently lost to the config (S2)
+
+**Where:** `src/main.cpp` argument parsing.
+
+**Why it was wrong:** flags were applied during argv parsing, then the config
+file overwrote them. `--base-url` therefore did nothing whenever a config was
+also passed — which is exactly how a test (or a user pointing at a stub, a
+proxy, or a local gateway) ends up talking to the default endpoint instead. The
+round-trip test caught it by reaching the real `api.openai.com` and returning
+401.
+
+**Fix:** track whether `--model` / `--base-url` were given and skip those config
+assignments. **Proof:** `test_cli_round_trip` reaches the stub, and the stub's
+recorded request count is exactly two.
+
 ## Re-audit triggers
 
 Run this audit again after: any new tool that touches the filesystem or

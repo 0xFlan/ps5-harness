@@ -68,7 +68,12 @@ test that proves it must ship with the change.
 7. **Plugins are code.** Loading a plugin directory is equivalent to running
    that program. The harness never auto-loads plugins from a network source,
    never from a registry, and never without an explicit path or config entry.
-8. **No capability is inferred from privilege.** If the console denies a write,
+8. **The model endpoint is policy-checked.** The provider URL is where the API
+   key travels, so it goes through the same https-only, no-private-range check
+   as everything else. A cleartext or LAN endpoint is refused before a socket
+   opens. The only exception is a compile-time test hook that is absent from
+   production builds and limited to loopback cleartext (see below).
+9. **No capability is inferred from privilege.** If the console denies a write,
    the tool reports the denial and the exact path; it never retries with a
    different mechanism to get around the sandbox.
 
@@ -86,6 +91,16 @@ test that proves it must ship with the change.
 - Do not add a "store key in settings" feature without an OS-keyring equivalent.
   On this platform there isn't one, so prefer: key from environment, or a
   short-lived token minted by a proxy the user runs elsewhere.
+
+## Test-only network hook
+
+`UrlPolicy::test_allow_loopback_cleartext` and the CLI flag
+`--test-allow-loopback-cleartext` are compiled only when `PS5H_TEST_HOOKS` is
+defined, which only the test targets do. They allow cleartext HTTP to a loopback
+host and nothing else — no LAN, no private ranges, no other scheme. No config
+file can enable them, `tests/policy_surface_test.cpp` fails to compile if the
+field appears in a production build, and `make test` asserts the shipped binary
+rejects both the cleartext endpoint and the flag.
 
 ## Plugin and manifest trust tiers
 

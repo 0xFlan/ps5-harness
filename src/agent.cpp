@@ -12,13 +12,14 @@ constexpr std::size_t kMaxToolOutput = 20000;
 }  // namespace
 
 Agent::Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env, LogFn log,
-             LogFn say, SecretSet secrets)
+             LogFn say, UrlPolicy policy, SecretSet secrets)
     : config_(std::move(config)),
       http_(std::move(http)),
       registry_(registry),
       env_(std::move(env)),
       log_(std::move(log)),
       say_(std::move(say)),
+      policy_(std::move(policy)),
       secrets_(std::move(secrets)) {}
 
 Json Agent::completion(const Json& messages) {
@@ -47,6 +48,16 @@ Json Agent::completion(const Json& messages) {
     request.url.pop_back();
   }
   request.url += "/chat/completions";
+
+  // The provider endpoint is where the API key travels, so it is subject to the
+  // same policy as everything else: no cleartext, no private ranges.
+  const UrlPolicy::Decision endpoint = policy_.check(request.url);
+  if (!endpoint.allowed) {
+    log_("model endpoint rejected by URL policy: " + endpoint.reason);
+    return Json();
+  }
+  request.resolved_ip = endpoint.resolved_ip;
+
   request.headers.emplace_back("Content-Type", "application/json");
 
   if (env_) {

@@ -47,6 +47,9 @@ export PS5H_API_KEY=...
 ./build/harness --config config.example.json "what is in examples/endpoints?"
 ```
 
+Explicit flags win over the config file (`--base-url` and `--model` are not
+overwritten by `model.*` in the config).
+
 Test one tool without spending tokens:
 
 ```bash
@@ -68,9 +71,21 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 | Buffered responses capped at 4 MB; downloads stream to disk with Range resume and sha256 | `src/http.cpp` |
 | Every tool call has a deadline (30 s default, per-tool override) | `src/core.cpp` |
 | Plugin results go into a **host-owned** buffer — nothing is freed across the ABI | `include/ps5h/plugin_api.h` |
+| The model endpoint is policy-checked too — the API key never travels over cleartext or to a private address | `src/agent.cpp` |
 
 `fs_write` and `download` refuse any path outside `allowed_roots`. Nothing
 disables TLS verification; there is no debug flag that does.
+
+### Testing the provider round trip
+
+The end-to-end test needs a cleartext loopback stub, which the production policy
+correctly refuses. The escape hatch is **compile-time only**: `UrlPolicy`'s
+`test_allow_loopback_cleartext` field and `--test-allow-loopback-cleartext` flag
+exist only in builds defining `PS5H_TEST_HOOKS` (the test targets), they permit
+loopback cleartext and nothing else, and no config file can reach them.
+`tests/policy_surface_test.cpp` fails to compile if the field ever appears in a
+production build, and the e2e suite proves the shipped binary rejects both the
+cleartext endpoint and the flag.
 
 ## Adding an API: endpoint manifests
 
@@ -156,14 +171,20 @@ Verified on the host:
   clean
 - Plugin ABI v2: an out-of-tree `.so` loads, registers and runs
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
+- **Full provider round trip** through the CLI binary against a local
+  OpenAI-compatible stub: user turn → assistant `tool_calls` → tool result with
+  the matching `tool_call_id` → second provider call that sees it → final
+  assistant message. Malformed JSON, an unknown tool and a truncated response
+  each produce a clean error, and the tool deadline returns without blocking
 
 Not verified or not built:
 
 - **Nothing has run on a PS5.** No cross-build, no `dlopen` or TLS test on
   hardware, no packaging.
 - **CI has not executed.** The workflow is committed; no remote run yet.
-- **No model call.** The loop's parts are tested; a real `/chat/completions`
-  round trip has never executed.
+- **No hosted provider has been used.** The round trip is verified against a
+  local stub with the real client, policy, dispatch, deadline and redaction; a
+  real account, real model and real tool-choice behaviour are untested.
 - **No on-console UI.** CLI and `--call` only.
 - **No elevation helper**, so writes reach only what the process can already
   open.

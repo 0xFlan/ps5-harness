@@ -25,6 +25,17 @@ struct UrlPolicy {
   };
 
   Decision check(const std::string& url) const;
+
+#if defined(PS5H_TEST_HOOKS)
+  // TEST ONLY. Never present in a production build: this member and the factory
+  // below are compiled out unless PS5H_TEST_HOOKS is defined, which only the
+  // test binaries do. Config parsing never touches it, so no config file can
+  // enable it. It permits cleartext HTTP to a loopback host only, which is what
+  // the local provider stub needs.
+  bool test_allow_loopback_cleartext = false;
+
+  static UrlPolicy test_only_loopback_policy();
+#endif
 };
 
 // Minimal absolute-URL parser: enough for policy checks, not a general RFC 3986

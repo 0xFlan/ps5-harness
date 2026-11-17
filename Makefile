@@ -5,7 +5,7 @@ CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Iinclude
 VERSION := $(shell cat VERSION)
 
 ifeq ($(UNAME_S),Linux)
-PLATFORM_LIBS := -lcurl -ldl
+PLATFORM_LIBS := -lcurl -ldl -pthread
 else
 PLATFORM_LIBS := -lcurl
 endif
@@ -36,9 +36,24 @@ build/hardening_test.o: tests/hardening_test.cpp | build
 build/hardening_test: $(LIB_OBJ) build/hardening_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
-test: build/core_test build/hardening_test
+# The provider round-trip test needs the cleartext-loopback policy, which only
+# exists in builds defining PS5H_TEST_HOOKS. Production targets never set it.
+E2E_DEFS := -DPS5H_TEST_HOOKS
+
+build/harness_e2e: $(LIB_SRC) src/main.cpp | build
+	$(CXX) $(CXXFLAGS) $(E2E_DEFS) $^ -o $@ $(PLATFORM_LIBS)
+
+build/e2e_agent_test: tests/e2e_agent_test.cpp $(LIB_SRC) | build
+	$(CXX) $(CXXFLAGS) $(E2E_DEFS) $^ -o $@ $(PLATFORM_LIBS)
+
+build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/hardening_test build/e2e_agent_test
+	./build/policy_surface_test
 	./build/core_test
 	./build/hardening_test
+	./build/e2e_agent_test
 
 tools: build/harness
 	./build/harness --tools --endpoints examples/endpoints

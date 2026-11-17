@@ -2,6 +2,7 @@
 #include "ps5h/policy.h"
 #include "ps5h/sha256.h"
 
+#include <arpa/inet.h>
 #include <sys/stat.h>
 
 #include <cstdio>
@@ -58,10 +59,18 @@ curl_slist* apply_common(CURL* curl, const HttpRequest& request, curl_slist* hea
   if (!request.resolved_ip.empty()) {
     ParsedUrl parsed;
     if (parse_url(request.url, &parsed)) {
-      std::string port = parsed.port.empty() ? "443" : parsed.port;
-      std::string entry = parsed.host + ":" + port + ":" + request.resolved_ip;
-      resolve = curl_slist_append(resolve, entry.c_str());
-      curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve);
+      // CURLOPT_RESOLVE maps a host name to an address. An IP literal has no
+      // name to pin, and curl rejects the entry.
+      in_addr literal4{};
+      in6_addr literal6{};
+      const bool literal = ::inet_pton(AF_INET, parsed.host.c_str(), &literal4) == 1 ||
+                           ::inet_pton(AF_INET6, parsed.host.c_str(), &literal6) == 1;
+      if (!literal) {
+        const std::string port = parsed.port.empty() ? "443" : parsed.port;
+        const std::string entry = parsed.host + ":" + port + ":" + request.resolved_ip;
+        resolve = curl_slist_append(resolve, entry.c_str());
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve);
+      }
     }
   }
   if (headers != nullptr) {

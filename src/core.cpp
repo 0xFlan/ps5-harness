@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cstdio>
 #include <future>
+#include <memory>
 #include <stdexcept>
+#include <thread>
 
 namespace ps5h {
 namespace {
@@ -115,15 +117,44 @@ Json run_with_deadline(const ToolHandler& handler, const Json& arguments, int ti
   }
 
   // Inputs are copied so an abandoned worker never reads caller-owned state.
-  auto task = std::async(std::launch::async, [handler, arguments]() { return handler(arguments); });
-  if (task.wait_for(std::chrono::milliseconds(timeout_ms)) != std::future_status::ready) {
+  //
+  // std::async is wrong here: the future it returns blocks in its destructor, so
+  // "timing out" would still wait for the handler to finish and a hung plugin
+  // would wedge the loop forever. A detached thread plus a shared promise lets
+  // the deadline actually return, and the abandoned worker only touches its own
+  // copy of the state.
+  auto promise = std::make_shared<std::promise<Json>>();
+  auto future = promise->get_future();
+
+  try {
+    std::thread([promise, handler, arguments]() {
+      try {
+        Json value = handler(arguments);
+        try {
+          promise->set_value(std::move(value));
+        } catch (...) {
+          // Timed out: the future is gone and nobody is listening.
+        }
+      } catch (...) {
+        try {
+          promise->set_exception(std::current_exception());
+        } catch (...) {
+        }
+      }
+    }).detach();
+  } catch (const std::exception& failure) {
+    if (error != nullptr) *error = std::string("cannot start tool thread: ") + failure.what();
+    return Json();
+  }
+
+  if (future.wait_for(std::chrono::milliseconds(timeout_ms)) != std::future_status::ready) {
     if (error != nullptr) {
       *error = "timed out after " + std::to_string(timeout_ms) + " ms";
     }
     return Json();
   }
   try {
-    return task.get();
+    return future.get();
   } catch (const std::exception& failure) {
     if (error != nullptr) *error = failure.what();
     return Json();
