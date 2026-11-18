@@ -420,6 +420,16 @@ the operating system trust store. After trusting it, open the HTTPS URL without
 a certificate warning. Browsers still require the bearer token; TLS does not
 replace authentication.
 
+On the current test Mac the certificate **is imported** into
+`~/Library/Keychains/login.keychain-db`, but the trust approval is still pending:
+`security dump-trust-settings` reports no trust settings and
+`security verify-cert` reports `CSSMERR_TP_NOT_TRUSTED`. macOS opened a
+`SecurityAgent` authorization prompt that an automated session cannot approve.
+Complete that prompt, or open the imported **PS5 Harness** certificate in
+Keychain Access and set **Always Trust** for SSL. Until that user-only step is
+done, the browser test below uses a certificate bypass and does **not** prove
+warning-free trust.
+
 If the certificate is not trusted, clicking through the warning still yields a
 secure context and the microphone prompt, but that bypass is only for testing;
 trust the certificate for normal use. The HTTP pages remain available and show

@@ -665,12 +665,20 @@ change payload bytes.
 
 With a client copy of the certificate at `/tmp/ps5h-cert.pem`, `curl --cacert
 /tmp/ps5h-cert.pem https://192.168.4.100:8790/` returned **200** and the page was
-53,581 bytes. The self-signed certificate must be
-trusted by the browser for a warning-free normal session; the exact macOS and
-iOS steps are in the README’s **HTTPS and microphone trust** section. The
-browser evidence below used a test-profile certificate bypass because that
-temporary profile did not have the certificate installed; the TLS chain itself
-was validated by `curl --cacert`.
+53,581 bytes. The self-signed certificate must be trusted by the browser for a
+warning-free normal session; the exact macOS and iOS steps are in the README’s
+**HTTPS and microphone trust** section.
+
+**Trust status on the test Mac:** the certificate was imported into
+`~/Library/Keychains/login.keychain-db`, but macOS did not apply the trust
+setting. `security dump-trust-settings` reports **no trust settings** and
+`security verify-cert` reports **`CSSMERR_TP_NOT_TRUSTED`**. The import opened a
+`SecurityAgent` authorization prompt that this automated session cannot approve.
+That is the remaining user-only step: approve the prompt, or open the imported
+**PS5 Harness** certificate in Keychain Access and set **Always Trust** for SSL.
+The browser evidence below therefore used a test-profile certificate bypass; it
+proves secure-context and microphone behavior, not genuine warning-free trust.
+The TLS chain itself was validated by `curl --cacert`.
 
 ### Access control and session
 
