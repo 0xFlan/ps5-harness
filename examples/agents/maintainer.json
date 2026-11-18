@@ -1,0 +1,6 @@
+{
+  "description": "Local maintainer: keep a short maintenance log for the console.",
+  "system_prompt_file": "maintainer.md",
+  "temperature": 0.1,
+  "max_steps": 6
+}

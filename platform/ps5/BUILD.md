@@ -215,6 +215,26 @@ provide the model key in the environment named by the config. The key is never
 read from the config file; a title launch cannot supply either the arguments or
 the environment.
 
+### Local agents
+
+Agent profiles are plain JSON files in `/data/homebrew` by default, or in the
+directory passed to `--agents`. They are read on every launch, so editing one
+on the console changes the next run without a rebuild. A profile can set a
+description, `system_prompt` or `system_prompt_file`, model, temperature,
+`max_tokens` and `max_steps`; it cannot change roots, URL policy, secrets, or
+endpoint/plugin directories.
+
+```bash
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--list-agents\n' \
+  | nc -w 30 <console-ip> 9021
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agent%%20archivist%%20--agent-info\n' \
+  | nc -w 30 <console-ip> 9021
+```
+
+`--agent-info` resolves the prompt and model without calling a provider, so it
+is the console check that works before an API key is staged. To run a turn, pass
+`--agent <name>` and `--prompt` through the same `file:` URI.
+
 ### Observed on hardware
 
 The 2026-11-18 runs used the web file manager to stage files and read

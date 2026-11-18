@@ -27,13 +27,15 @@ measurement remain open.
 ## What exists today
 
 `ps5-harness` builds on macOS with `-Wall -Wextra` and no warnings. `make test`
-runs six host suites plus the PS5 package validator. Four built-in tools
+runs the host suites plus the PS5 package validator. Four built-in tools
 (`fs_list`, `fs_read`, `fs_write`, `http_get`), manifest compilation
 (`examples/endpoints/archive.json` → 3 tools), and a `.so` plugin loading
 through the C ABI all work. One live HTTPS call to
-`archive.org/advancedsearch.php` returned real records. The runtime derives its
-worker count, response buffers and download capacity from a measured resource
-profile rather than host constants.
+`archive.org/advancedsearch.php` returned real records. Local agent profiles
+(`--agent`, `--list-agents`, `--agent-info`) load prompt and model overrides
+from JSON files on disk; editing a profile changes the next run without a
+rebuild. The runtime derives its worker count, response buffers and download
+capacity from a measured resource profile rather than host constants.
 
 That is a proof of the extension contract, not a product. The host defects in
 `docs/AUDIT.md` are fixed, and the console artifact now boots and runs on a PS5
@@ -187,6 +189,17 @@ and is the fallback if P3 shows `dlopen` is fragile.
 
 Completion: someone who has never read this repo adds a working tool using only
 `docs/` and the template, without asking a question.
+
+### Local agents
+
+The local counterpart to the extension registry is a profile directory. Each
+`<name>.json` can set a system prompt (inline or from a file), model,
+temperature, token cap and step budget; the profile is read on every launch, so
+editing it on the console needs no rebuild. Profiles cannot change roots, URL
+policy, secrets, or endpoint/plugin directories — those remain in the main
+config. `--list-agents` and `--agent-info` work without a provider key, and the
+host e2e suite asserts that a profile prompt and model reach the provider
+request.
 
 ## P6 — User experience
 

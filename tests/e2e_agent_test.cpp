@@ -449,6 +449,79 @@ void test_cli_round_trip() {
   assert(second.body.find(secret) == std::string::npos);
 }
 
+// A profile staged in a local directory must reach the provider request and
+// the informational commands must work without a model call.
+void test_local_agent_profile() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_text(agents + "/archivist.json",
+             R"({
+  "description": "Local test agent",
+  "system_prompt": "LOCAL PROFILE PROMPT",
+  "model": "profile-model",
+  "temperature": 0.4,
+  "max_tokens": 123,
+  "max_steps": 3
+})");
+
+  Json model = Json::object();
+  model["base_url"] = "https://api.openai.com/v1";
+  model["model"] = "base-model";
+  model["api_key_env"] = "PS5H_E2E_KEY";
+  Json roots = Json::array();
+  roots.push_back(directory);
+  Json config = Json::object();
+  config["model"] = model;
+  config["endpoints_dir"] = "";
+  config["plugins_dir"] = "";
+  config["max_steps"] = 4;
+  config["allowed_roots"] = roots;
+  config["read_roots"] = roots;
+  config["secret_env"] = Json::array();
+  const std::string config_path = directory + "/config.json";
+  write_text(config_path, config.dump(2));
+
+  StubProvider stub({Reply{final_reply("local agent done")}});
+  const std::string command =
+      "./build/harness_e2e --config " + quote(config_path) + " --agents " +
+      quote(agents) + " --agent archivist --base-url " +
+      quote(stub.base_url()) + " --test-allow-loopback-cleartext " +
+      quote("hello");
+  const CommandResult result = run_command(command);
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "local agent CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+  assert(result.exit_code == 0);
+  assert(stub.wait_for_requests(1, 8000));
+  const Recorded first = stub.request(0);
+  assert(first.body.find("LOCAL PROFILE PROMPT") != std::string::npos);
+  assert(first.body.find("\"model\":\"profile-model\"") != std::string::npos);
+  assert(first.body.find("\"max_tokens\":123") != std::string::npos);
+  assert(first.body.find("\"temperature\":0.4") != std::string::npos);
+
+  const CommandResult info =
+      run_command("./build/harness_e2e --agents " + quote(agents) +
+                  " --agent archivist --agent-info");
+  assert(info.exit_code == 0);
+  assert(info.output.find("LOCAL PROFILE PROMPT") != std::string::npos);
+  assert(info.output.find("model=profile-model") != std::string::npos);
+  assert(info.output.find("max_steps=3") != std::string::npos);
+
+  const CommandResult list = run_command(
+      "./build/harness_e2e --agents " + quote(agents) + " --list-agents");
+  assert(list.exit_code == 0);
+  assert(list.output.find("archivist") != std::string::npos);
+  assert(list.output.find("Local test agent") != std::string::npos);
+
+  const CommandResult missing =
+      run_command("./build/harness_e2e --agents " + quote(agents) +
+                  " --agent nope --agent-info");
+  assert(missing.exit_code != 0);
+  assert(missing.output.find("cannot load agent") != std::string::npos);
+}
+
 Agent make_agent(const StubProvider& stub, ToolRegistry& registry, LogFn log,
                  const std::string& key_env = std::string(),
                  RuntimeBudget budget = RuntimeBudget{}) {
@@ -632,6 +705,8 @@ int main() {
   test_default_policy_rejects_stub();
   std::printf("cli round trip...\n");
   test_cli_round_trip();
+  std::printf("local agent profile...\n");
+  test_local_agent_profile();
   std::printf("malformed provider response...\n");
   test_malformed_provider_response();
   std::printf("unknown tool...\n");

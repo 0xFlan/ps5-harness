@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ps5h/agent.h"
+#include "ps5h/agents.h"
 #include "ps5h/core.h"
 #include "ps5h/endpoints.h"
 #include "ps5h/json.h"
@@ -345,6 +346,10 @@ void print_usage() {
       "  --config <file>      JSON config (see config.example.json)\n"
       "  --endpoints <dir>    Directory of endpoint manifests\n"
       "  --plugins <dir>      Directory of shared-object plugins\n"
+      "  --agents <dir>       Local agent profile directory (console default: /data/homebrew)\n"
+      "  --agent <name>       Load <dir>/<name>.json for this run\n"
+      "  --list-agents        List local agent profiles and exit\n"
+      "  --agent-info         Print the selected profile and exit\n"
       "  --tools              List registered tools and exit\n"
       "  --call <tool>        Invoke one tool directly and print its result\n"
       "  --args <json>        Arguments for --call (default {})\n"
@@ -374,6 +379,12 @@ int main(int argc, char** argv) {
   std::string log_path;
   std::string endpoints_dir = "examples/endpoints";
   std::string plugins_dir;
+#if defined(PS5H_PS5_TARGET)
+  std::string agents_dir = "/data/homebrew";
+#else
+  std::string agents_dir = "agents";
+#endif
+  std::string agent_name;
   std::string prompt;
   std::string call_tool;
   std::string call_args = "{}";
@@ -381,7 +392,12 @@ int main(int argc, char** argv) {
   bool show_resources = false;
   bool base_url_from_flag = false;
   bool model_from_flag = false;
+  bool agents_dir_from_flag = false;
+  bool list_agents = false;
+  bool agent_info = false;
+  bool system_prompt_from_config = false;
   int max_steps = 12;
+  bool max_steps_from_flag = false;
 
   ModelConfig config;
   std::vector<std::string> allowed_roots;
@@ -407,6 +423,15 @@ int main(int argc, char** argv) {
       endpoints_dir = next("--endpoints");
     } else if (arg == "--plugins") {
       plugins_dir = next("--plugins");
+    } else if (arg == "--agents") {
+      agents_dir = next("--agents");
+      agents_dir_from_flag = true;
+    } else if (arg == "--agent") {
+      agent_name = next("--agent");
+    } else if (arg == "--list-agents") {
+      list_agents = true;
+    } else if (arg == "--agent-info") {
+      agent_info = true;
     } else if (arg == "--prompt") {
       prompt = next("--prompt");
     } else if (arg == "--model") {
@@ -417,6 +442,7 @@ int main(int argc, char** argv) {
       base_url_from_flag = true;
     } else if (arg == "--max-steps") {
       max_steps = std::atoi(next("--max-steps").c_str());
+      max_steps_from_flag = true;
     } else if (arg == "--tools") {
       show_tools = true;
     } else if (arg == "--resources") {
@@ -504,8 +530,12 @@ int main(int argc, char** argv) {
       if (root["plugins_dir"].is_string()) {
         plugins_dir = root["plugins_dir"].as_string();
       }
+      if (root["agents_dir"].is_string() && !agents_dir_from_flag) {
+        agents_dir = root["agents_dir"].as_string();
+      }
       if (root["system_prompt"].is_string()) {
         system_prompt = root["system_prompt"].as_string();
+        system_prompt_from_config = true;
       }
       if (root["max_steps"].is_number()) {
         max_steps = static_cast<int>(root["max_steps"].as_number());
@@ -530,6 +560,76 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "invalid config: %s\n", failure.what());
       return 1;
     }
+  }
+
+  if (list_agents) {
+    const std::vector<AgentProfileEntry> entries =
+        list_agent_profiles(agents_dir);
+    std::printf("agents_dir=%s\n", agents_dir.c_str());
+    if (entries.empty()) {
+      std::printf("no local agents\n");
+    }
+    for (const AgentProfileEntry& entry : entries) {
+      if (entry.error.empty()) {
+        std::printf("%-24s %s\n", entry.name.c_str(),
+                    entry.description.c_str());
+      } else {
+        std::printf("%-24s invalid: %s\n", entry.name.c_str(),
+                    entry.error.c_str());
+      }
+    }
+    return 0;
+  }
+
+  AgentProfile agent_profile;
+  bool have_profile = false;
+  if (!agent_name.empty()) {
+    AgentProfileLoad loaded = load_agent_profile(agents_dir, agent_name);
+    if (!loaded.ok) {
+      std::fprintf(stderr, "cannot load agent %s from %s: %s\n",
+                   agent_name.c_str(), agents_dir.c_str(),
+                   loaded.error.c_str());
+      return 1;
+    }
+    agent_profile = loaded.profile;
+    have_profile = true;
+    if (!model_from_flag && agent_profile.has_model) {
+      config.model = agent_profile.model;
+    }
+    if (agent_profile.has_temperature) {
+      config.temperature = agent_profile.temperature;
+    }
+    if (agent_profile.has_max_tokens) {
+      config.max_tokens = agent_profile.max_tokens;
+    }
+    if (!max_steps_from_flag && agent_profile.has_max_steps) {
+      max_steps = agent_profile.max_steps;
+    }
+    if (agent_profile.has_system_prompt) {
+      system_prompt = agent_profile.system_prompt;
+    }
+  }
+
+  if (agent_info) {
+    if (!have_profile) {
+      std::fprintf(stderr, "--agent-info needs --agent <name>\n");
+      return 2;
+    }
+    const char* prompt_source =
+        agent_profile.has_system_prompt
+            ? "profile"
+            : (system_prompt_from_config ? "config" : "default");
+    std::printf("name=%s\n", agent_profile.name.c_str());
+    std::printf("description=%s\n", agent_profile.description.c_str());
+    std::printf("model=%s\n", config.model.c_str());
+    std::printf("temperature=%.3f\n", config.temperature);
+    std::printf("max_tokens=%d\n", config.max_tokens);
+    std::printf("max_steps=%d\n", max_steps);
+    std::printf("system_prompt_source=%s\n", prompt_source);
+    std::printf("system_prompt_bytes=%zu\n", system_prompt.size());
+    std::printf("system_prompt_begin\n%s\nsystem_prompt_end\n",
+                system_prompt.c_str());
+    return 0;
   }
 
   if (allowed_roots.empty()) {
@@ -578,6 +678,11 @@ int main(int argc, char** argv) {
     return 0;
   }
   log(std::string("build=") + PS5H_BUILD_ID + " title=" + PS5H_TITLE_ID);
+  if (have_profile) {
+    log("agent=" + agent_profile.name + " profile=" + agents_dir + "/" +
+        agent_name + ".json model=" + config.model +
+        " max_steps=" + std::to_string(max_steps));
+  }
 #if defined(PS5H_PS5_TARGET)
   for (const std::string& line : describe_resources(profile)) {
     log(line);

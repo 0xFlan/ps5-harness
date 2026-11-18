@@ -56,6 +56,12 @@ build/hardening_test.o: tests/hardening_test.cpp | build
 build/hardening_test: $(LIB_OBJ) build/hardening_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+build/agents_test.o: tests/agents_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/agents_test: $(LIB_OBJ) build/agents_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
 # The provider round-trip test needs the cleartext-loopback policy, which only
 # exists in builds defining PS5H_TEST_HOOKS. Production targets never set it.
 E2E_DEFS := -DPS5H_TEST_HOOKS
@@ -72,12 +78,13 @@ build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
 build/ps5_package_test: tests/ps5_package_test.cpp | build
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/e2e_agent_test build/ps5_package_test
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
 	./build/resources_test
 	./build/runtime_test
 	./build/hardening_test
+	./build/agents_test
 	@$(MAKE) -C platform/ps5 host-assets
 	./build/ps5_package_test $(PS5_PACKAGE) $(PS5_PACKAGE_MODE)
 	./build/e2e_agent_test

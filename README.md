@@ -147,6 +147,62 @@ and versioned; check `host->abi_version` before using newer members.
 process with network access and the harness's filesystem permissions. Only load
 plugin directories you would run as a program.
 
+## Local agents
+
+A local agent is a JSON profile on the console, not a compiled plugin. Profiles
+are read at startup, so editing one on the PS5 takes effect on the next run with
+no rebuild.
+
+Default profile directory: `/data/homebrew` on the console, `agents` on the
+host. `--agents <dir>` overrides it. The file name is the agent name:
+`<dir>/<name>.json`.
+
+```json
+{
+  "description": "Local archivist",
+  "system_prompt": "You are the local archivist. Read before answering.",
+  "model": "gpt-4o-mini",
+  "temperature": 0.2,
+  "max_tokens": 1024,
+  "max_steps": 8
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `description` | One-line label shown by `--list-agents` |
+| `system_prompt` | Inline system prompt |
+| `system_prompt_file` | Prompt file relative to the profile directory (alternative to `system_prompt`) |
+| `model` | Model id override |
+| `temperature` | 0–2 |
+| `max_tokens` | 0–32768; 0 omits the field |
+| `max_steps` | 1–64 tool steps |
+
+`system_prompt_file` is canonicalised and must stay inside the profile
+directory; both prompt forms are capped at 64 KiB. A profile cannot set
+`allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
+`plugins_dir` or `api_key_env` — those stay in the main config, so a profile
+cannot widen its own permissions. Explicit `--model` and `--max-steps` flags
+win over the profile.
+
+```bash
+./build/harness --agents examples/agents --list-agents
+./build/harness --agents examples/agents --agent archivist --agent-info
+./build/harness --config config.example.json --agents examples/agents \
+  --agent archivist "what is in /data/homebrew?"
+```
+
+`--agent-info` resolves and prints the profile without calling a model, which is
+useful on the console where no key is staged. On the PS5:
+
+```bash
+# copy archivist.json (and any prompt file) to /data/homebrew first
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--list-agents\n' \
+  | nc -w 30 <console-ip> 9021
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agent%%20archivist%%20--agent-info\n' \
+  | nc -w 30 <console-ip> 9021
+```
+
 ## Building for the PS5
 
 The real agent, not the bring-up probe. `make -C platform/ps5` cross-compiles
@@ -208,6 +264,10 @@ Verified on the host:
 - 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
   clean
 - Plugin ABI v2: an out-of-tree `.so` loads, registers and runs
+- **Local agent profiles**: schema/path-confinement tests pass; the end-to-end
+  CLI test proves a profile's system prompt, model, temperature and token cap
+  reach the provider request, and `--list-agents`/`--agent-info` work without a
+  model call
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
 - **Full provider round trip** through the test build of the CLI
   (`build/harness_e2e`, same sources plus the test hook) against a local
