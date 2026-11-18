@@ -9,6 +9,7 @@
   "endpoints_dir": "examples/endpoints",
   "plugins_dir": "",
   "max_steps": 12,
+  "delegation_max_depth": 2,
   "allowed_roots": ["/data/homebrew", "/mnt/usb0"],
   "read_roots": ["/data/homebrew", "/mnt/usb0"],
   "secret_env": ["PS5H_API_KEY"],

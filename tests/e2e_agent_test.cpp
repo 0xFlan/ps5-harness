@@ -331,7 +331,7 @@ std::string multi_tool_call_reply() {
   return reply.dump();
 }
 
-std::string final_reply(const std::string& text) {
+std::string final_reply(const std::string& text, long long total_tokens = 0) {
   Json message = Json::object();
   message["role"] = "assistant";
   message["content"] = text;
@@ -348,6 +348,13 @@ std::string final_reply(const std::string& text) {
   reply["id"] = "stub-2";
   reply["object"] = "chat.completion";
   reply["choices"] = choices;
+  if (total_tokens > 0) {
+    Json usage = Json::object();
+    usage["prompt_tokens"] = total_tokens / 2;
+    usage["completion_tokens"] = total_tokens - total_tokens / 2;
+    usage["total_tokens"] = total_tokens;
+    reply["usage"] = usage;
+  }
   return reply.dump();
 }
 
@@ -520,6 +527,256 @@ void test_local_agent_profile() {
                   " --agent nope --agent-info");
   assert(missing.exit_code != 0);
   assert(missing.output.find("cannot load agent") != std::string::npos);
+}
+
+std::string write_delegation_config(const std::string& directory, int max_steps,
+                                    int max_tokens, int max_depth) {
+  Json model = Json::object();
+  model["base_url"] = "https://api.openai.com/v1";
+  model["model"] = "parent-model";
+  model["api_key_env"] = "PS5H_E2E_KEY";
+  model["max_tokens"] = max_tokens;
+
+  Json roots = Json::array();
+  roots.push_back(directory);
+  Json config = Json::object();
+  config["model"] = model;
+  config["endpoints_dir"] = "";
+  config["plugins_dir"] = "";
+  config["max_steps"] = max_steps;
+  config["delegation_max_depth"] = max_depth;
+  config["allowed_roots"] = roots;
+  config["read_roots"] = roots;
+  config["secret_env"] = Json::array();
+  const std::string path = directory + "/config.json";
+  write_text(path, config.dump(2));
+  return path;
+}
+
+void write_profile(const std::string& agents, const std::string& name,
+                   const std::string& body) {
+  write_text(agents + "/" + name + ".json", body);
+}
+
+// A real parent conversation calls delegate; the stub then serves the child
+// conversation and the parent sees the child's answer as a tool result.
+void test_delegation_round_trip() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_text(agents + "/helper.md", "HELPER PROMPT FROM FILE\n");
+  write_profile(agents, "helper",
+                R"({"description":"Helper","system_prompt_file":"helper.md","model":"helper-model","max_steps":1,"max_tokens":200})");
+  const std::string config_path = write_delegation_config(directory, 6, 500, 2);
+
+  Json delegate_args = Json::object();
+  delegate_args["profile"] = "helper";
+  delegate_args["task"] = "summarise the local notes";
+  Json read_args = Json::object();
+  read_args["path"] = "/etc/hosts";
+  StubProvider stub({Reply{tool_call_reply("call_delegate", "delegate", delegate_args)},
+                     Reply{tool_call_reply("call_child_read", "fs_read", read_args)},
+                     Reply{final_reply("helper result", 80)},
+                     Reply{final_reply("parent result")}});
+
+  const std::string command =
+      "./build/harness_e2e --config " + quote(config_path) + " --agents " +
+      quote(agents) + " --model forced-model --max-steps 4 --max-depth 2 "
+      "--base-url " + quote(stub.base_url()) +
+      " --test-allow-loopback-cleartext " + quote("parent task");
+  const CommandResult result = run_command(command);
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "delegation CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+
+  assert(result.exit_code == 0);
+  assert(result.output.find("parent result") != std::string::npos);
+  assert(result.output.find("delegate -> profile=helper depth=1") !=
+         std::string::npos);
+  assert(result.output.find("delegate <- profile=helper ok=true") !=
+         std::string::npos);
+  assert(stub.wait_for_requests(4, 8000));
+  assert(stub.request_count() == 4);
+
+  const Recorded first = stub.request(0);
+  assert(first.body.find("parent task") != std::string::npos);
+  assert(first.body.find("delegate") != std::string::npos);
+
+  const Recorded child = stub.request(1);
+  assert(child.body.find("HELPER PROMPT FROM FILE") != std::string::npos);
+  assert(child.body.find("summarise the local notes") != std::string::npos);
+  assert(child.body.find("\"max_tokens\":200") != std::string::npos);
+  // Explicit flags beat the helper profile's model and one-step cap: the child
+  // completed a tool call and a final turn instead of stopping at one step.
+  assert(child.body.find("\"model\":\"forced-model\"") != std::string::npos);
+  assert(child.body.find("helper-model") == std::string::npos);
+
+  // The child inherited the parent's read guard, so a path outside the parent
+  // root is refused rather than becoming reachable through delegation.
+  const Recorded child_after_read = stub.request(2);
+  assert(child_after_read.body.find("outside the read roots") !=
+         std::string::npos);
+  assert(child_after_read.body.find("\"tool_call_id\":\"call_child_read\"") !=
+         std::string::npos);
+
+  const Recorded parent_after = stub.request(3);
+  assert(parent_after.body.find("helper result") != std::string::npos);
+  assert(parent_after.body.find("\"tool_call_id\":\"call_delegate\"") !=
+         std::string::npos);
+  assert(parent_after.body.find("remaining_steps") != std::string::npos);
+  assert(parent_after.body.find("remaining_tokens") != std::string::npos);
+}
+
+// At max depth 1 the child may not create a grandchild. The refusal is a tool
+// error inside the child conversation, not recursion or a relaxed limit.
+void test_delegation_depth_limit() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_profile(agents, "helper",
+                R"({"description":"Helper","system_prompt":"HELPER DEPTH PROMPT","max_steps":3,"max_tokens":100})");
+  write_profile(agents, "grandchild",
+                R"({"description":"Grandchild","system_prompt":"GRANDCHILD","max_steps":2})");
+  const std::string config_path = write_delegation_config(directory, 6, 500, 1);
+
+  Json first_args = Json::object();
+  first_args["profile"] = "helper";
+  first_args["task"] = "go deeper";
+  Json nested_args = Json::object();
+  nested_args["profile"] = "grandchild";
+  nested_args["task"] = "too deep";
+  StubProvider stub({Reply{tool_call_reply("call_outer", "delegate", first_args)},
+                     Reply{tool_call_reply("call_nested", "delegate", nested_args)},
+                     Reply{final_reply("child stopped at bound", 50)},
+                     Reply{final_reply("parent depth done")}});
+
+  const std::string command =
+      "./build/harness_e2e --config " + quote(config_path) + " --agents " +
+      quote(agents) + " --max-depth 1 --base-url " + quote(stub.base_url()) +
+      " --test-allow-loopback-cleartext " + quote("parent depth task");
+  const CommandResult result = run_command(command);
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "depth CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+
+  assert(result.exit_code == 0);
+  assert(result.output.find("parent depth done") != std::string::npos);
+  assert(result.output.find("delegation depth limit reached") !=
+         std::string::npos);
+  assert(stub.wait_for_requests(4, 8000));
+  assert(stub.request_count() == 4);
+
+  const Recorded child_first = stub.request(1);
+  assert(child_first.body.find("HELPER DEPTH PROMPT") != std::string::npos);
+  assert(child_first.body.find("delegate") != std::string::npos);
+
+  const Recorded child_after = stub.request(2);
+  assert(child_after.body.find("delegation depth limit reached") !=
+         std::string::npos);
+  assert(child_after.body.find("max 1") != std::string::npos);
+  assert(child_after.body.find("\"tool_call_id\":\"call_nested\"") !=
+         std::string::npos);
+}
+
+// The child reserves its full caps, then unused steps and reported tokens are
+// refunded. 6-step/500-token parent pool minus one step and 80 tokens = 5/420.
+void test_delegation_budget_accounting() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_profile(agents, "helper",
+                R"({"description":"Helper","system_prompt":"BUDGET HELPER","max_steps":2,"max_tokens":200})");
+  const std::string config_path = write_delegation_config(directory, 6, 500, 1);
+
+  StubProvider stub({Reply{final_reply("budget child", 80)}});
+  Json arguments = Json::object();
+  arguments["profile"] = "helper";
+  arguments["task"] = "work";
+  const CommandResult result = run_command(
+      "./build/harness_e2e --config " + quote(config_path) + " --agents " +
+      quote(agents) + " --max-depth 1 --base-url " + quote(stub.base_url()) +
+      " --test-allow-loopback-cleartext --call delegate --args " +
+      quote(arguments.dump()));
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "budget CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+
+  assert(result.exit_code == 0);
+  assert(stub.wait_for_requests(1, 8000));
+  assert(stub.request_count() == 1);
+  assert(result.output.find("\"ok\": true") != std::string::npos);
+  assert(result.output.find("\"steps\": 1") != std::string::npos);
+  assert(result.output.find("\"tokens\": 80") != std::string::npos);
+  assert(result.output.find("\"remaining_steps\": 5") !=
+         std::string::npos);
+  assert(result.output.find("\"remaining_tokens\": 420") !=
+         std::string::npos);
+}
+
+// Invalid profiles and self-delegation fail closed before any child runs; an
+// over-large child request is refused by the shared step pool.
+void test_delegation_refusals() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_profile(agents, "helper",
+                R"({"description":"Helper","system_prompt":"SELF HELPER","max_steps":3})");
+  write_profile(agents, "badroots",
+                R"({"system_prompt":"x","allowed_roots":["/"]})");
+  write_profile(agents, "badurl",
+                R"({"system_prompt":"x","url_policy":{"https_only":true}})");
+  write_profile(agents, "baddepth",
+                R"({"system_prompt":"x","delegation_max_depth":8})");
+  write_profile(agents, "greedy",
+                R"({"system_prompt":"x","max_steps":12})");
+  const std::string config_path = write_delegation_config(directory, 2, 500, 1);
+  const std::string base = "./build/harness_e2e --config " + quote(config_path) +
+                           " --agents " + quote(agents) + " --max-depth 1";
+
+  auto delegate_call = [&](const std::string& profile) {
+    Json arguments = Json::object();
+    arguments["profile"] = profile;
+    arguments["task"] = "x";
+    return run_command(base + " --call delegate --args " +
+                       quote(arguments.dump()));
+  };
+
+  const CommandResult missing = delegate_call("missing");
+  assert(missing.exit_code == 0);
+  assert(missing.output.find("cannot load agent") != std::string::npos);
+  assert(missing.output.find("missing") != std::string::npos);
+
+  const CommandResult roots = delegate_call("badroots");
+  assert(roots.exit_code == 0);
+  assert(roots.output.find("profiles cannot set allowed_roots") !=
+         std::string::npos);
+
+  const CommandResult url = delegate_call("badurl");
+  assert(url.exit_code == 0);
+  assert(url.output.find("profiles cannot set url_policy") !=
+         std::string::npos);
+
+  const CommandResult depth_key = delegate_call("baddepth");
+  assert(depth_key.exit_code == 0);
+  assert(depth_key.output.find("profiles cannot set delegation_max_depth") !=
+         std::string::npos);
+
+  Json self_args = Json::object();
+  self_args["profile"] = "helper";
+  self_args["task"] = "x";
+  const CommandResult self = run_command(
+      base + " --agent helper --call delegate --args " +
+      quote(self_args.dump()));
+  assert(self.exit_code == 0);
+  assert(self.output.find("cannot delegate to itself") != std::string::npos);
+
+  const CommandResult budget = delegate_call("greedy");
+  assert(budget.exit_code == 0);
+  assert(budget.output.find("delegation budget exhausted") !=
+         std::string::npos);
 }
 
 Agent make_agent(const StubProvider& stub, ToolRegistry& registry, LogFn log,
@@ -707,6 +964,14 @@ int main() {
   test_cli_round_trip();
   std::printf("local agent profile...\n");
   test_local_agent_profile();
+  std::printf("delegation round trip...\n");
+  test_delegation_round_trip();
+  std::printf("delegation depth limit...\n");
+  test_delegation_depth_limit();
+  std::printf("delegation budget accounting...\n");
+  test_delegation_budget_accounting();
+  std::printf("delegation refusals...\n");
+  test_delegation_refusals();
   std::printf("malformed provider response...\n");
   test_malformed_provider_response();
   std::printf("unknown tool...\n");

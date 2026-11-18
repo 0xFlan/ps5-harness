@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "ps5h/agent.h"
 #include "ps5h/agents.h"
 #include "ps5h/core.h"
+#include "ps5h/delegation.h"
 #include "ps5h/endpoints.h"
 #include "ps5h/json.h"
 #include "ps5h/paths.h"
@@ -357,6 +359,7 @@ void print_usage() {
       "  --model <name>       Override the model id\n"
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
+      "  --max-depth <n>      Maximum delegate nesting depth (default 2, 0 disables)\n"
       "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
       "  --log <file>         Append diagnostics to a file (console default: /data/ps5-harness-agent.log)\n"
       "  --help               This message\n\n"
@@ -398,6 +401,8 @@ int main(int argc, char** argv) {
   bool system_prompt_from_config = false;
   int max_steps = 12;
   bool max_steps_from_flag = false;
+  int max_delegation_depth = 2;
+  bool max_depth_from_flag = false;
 
   ModelConfig config;
   std::vector<std::string> allowed_roots;
@@ -443,6 +448,9 @@ int main(int argc, char** argv) {
     } else if (arg == "--max-steps") {
       max_steps = std::atoi(next("--max-steps").c_str());
       max_steps_from_flag = true;
+    } else if (arg == "--max-depth") {
+      max_delegation_depth = std::atoi(next("--max-depth").c_str());
+      max_depth_from_flag = true;
     } else if (arg == "--tools") {
       show_tools = true;
     } else if (arg == "--resources") {
@@ -540,6 +548,10 @@ int main(int argc, char** argv) {
       if (root["max_steps"].is_number()) {
         max_steps = static_cast<int>(root["max_steps"].as_number());
       }
+      if (!max_depth_from_flag && root["delegation_max_depth"].is_number()) {
+        max_delegation_depth =
+            static_cast<int>(root["delegation_max_depth"].as_number());
+      }
       for (const auto& entry : root["allowed_roots"].items()) {
         if (entry.is_string()) allowed_roots.push_back(entry.as_string());
       }
@@ -610,6 +622,11 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (max_delegation_depth < 0 || max_delegation_depth > 8) {
+    std::fprintf(stderr, "delegation max depth must be between 0 and 8\n");
+    return 2;
+  }
+
   if (agent_info) {
     if (!have_profile) {
       std::fprintf(stderr, "--agent-info needs --agent <name>\n");
@@ -625,6 +642,7 @@ int main(int argc, char** argv) {
     std::printf("temperature=%.3f\n", config.temperature);
     std::printf("max_tokens=%d\n", config.max_tokens);
     std::printf("max_steps=%d\n", max_steps);
+    std::printf("delegation_max_depth=%d\n", max_delegation_depth);
     std::printf("system_prompt_source=%s\n", prompt_source);
     std::printf("system_prompt_bytes=%zu\n", system_prompt.size());
     std::printf("system_prompt_begin\n%s\nsystem_prompt_end\n",
@@ -722,6 +740,23 @@ int main(int argc, char** argv) {
 
   PluginHost plugins(registry, http, env, log, budget.buffered_response_bytes);
   plugins.load_directory(plugins_dir);
+
+  DelegationConfig delegation;
+  delegation.agents_dir = agents_dir;
+  delegation.model = config;
+  delegation.http = http;
+  delegation.env = env;
+  delegation.log = log;
+  delegation.policy = policy;
+  delegation.secrets = secrets;
+  delegation.budget = budget;
+  delegation.parent_system_prompt = system_prompt;
+  delegation.parent_max_steps = max_steps;
+  delegation.model_locked = model_from_flag;
+  delegation.max_steps_locked = max_steps_from_flag;
+  delegation.max_depth = max_delegation_depth;
+  auto delegator = std::make_shared<Delegator>(std::move(delegation));
+  registry.add(make_delegate_tool(delegator, 0, agent_name, &registry));
 
   if (!call_tool.empty()) {
     Json arguments = Json::object();

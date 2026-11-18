@@ -19,7 +19,7 @@ Agent::Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env,
       budget_(budget),
       executor_(budget.workers) {}
 
-Json Agent::completion(const Json& messages) {
+Json Agent::completion(const Json& messages, AgentRunStats* stats) {
   if (!http_) {
     log_("no HTTP backend available; cannot call the model");
     return Json();
@@ -90,10 +90,32 @@ Json Agent::completion(const Json& messages) {
     log_("model response had no choices[0].message");
     return Json();
   }
+  if (stats != nullptr) {
+    const Json& usage = parsed["usage"];
+    if (usage.is_object() &&
+        (usage.contains("prompt_tokens") || usage.contains("completion_tokens") ||
+         usage.contains("total_tokens"))) {
+      stats->prompt_tokens +=
+          static_cast<long long>(usage["prompt_tokens"].as_number(0));
+      stats->completion_tokens +=
+          static_cast<long long>(usage["completion_tokens"].as_number(0));
+      stats->total_tokens +=
+          static_cast<long long>(usage["total_tokens"].as_number(0));
+      stats->usage_reported = true;
+    } else {
+      // A missing usage block makes a token refund unsafe. Keep the full child
+      // reservation charged instead of treating the missing turn as free.
+      stats->usage_complete = false;
+    }
+  }
   return message;
 }
 
-bool Agent::run(const std::string& prompt, const AgentOptions& options) {
+bool Agent::run(const std::string& prompt, const AgentOptions& options,
+                AgentRunStats* stats) {
+  if (stats != nullptr) {
+    *stats = AgentRunStats{};
+  }
   Json messages = Json::array();
 
   Json system = Json::object();
@@ -107,7 +129,10 @@ bool Agent::run(const std::string& prompt, const AgentOptions& options) {
   messages.push_back(user);
 
   for (int step = 0; step < options.max_steps; ++step) {
-    Json message = completion(messages);
+    if (stats != nullptr) {
+      stats->steps = step + 1;
+    }
+    Json message = completion(messages, stats);
     if (!message.is_object()) {
       return false;
     }

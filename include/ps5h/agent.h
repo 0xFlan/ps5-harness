@@ -23,17 +23,29 @@ struct AgentOptions {
   std::string system_prompt;
 };
 
+// Usage for one agent run. A delegator charges the child's own steps/tokens
+// through its shared budget; this struct does not include grandchildren.
+struct AgentRunStats {
+  int steps = 0;
+  long long prompt_tokens = 0;
+  long long completion_tokens = 0;
+  long long total_tokens = 0;
+  bool usage_reported = false;
+  bool usage_complete = true;  // every completion in this run reported usage
+};
+
 class Agent {
  public:
   Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env, LogFn log,
         LogFn say, UrlPolicy policy, SecretSet secrets,
         RuntimeBudget budget = RuntimeBudget{});
 
-  bool run(const std::string& prompt, const AgentOptions& options);
+  bool run(const std::string& prompt, const AgentOptions& options,
+           AgentRunStats* stats = nullptr);
   int workers() const { return executor_.workers(); }
 
  private:
-  Json completion(const Json& messages);
+  Json completion(const Json& messages, AgentRunStats* stats);
 
   ModelConfig config_;
   HttpFn http_;
