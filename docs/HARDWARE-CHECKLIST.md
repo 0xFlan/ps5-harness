@@ -5,11 +5,12 @@ A phase is not complete because a build succeeded elsewhere; it is complete when
 the relevant rows below are ticked on the console.
 
 The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4, `0.1.0-4d7499f`
-for local agents and `0.1.0-c0f76b5` for delegation, elfldr payload path) is
-recorded in `docs/CONSOLE-REPORT.md`: P2 boot/resources, P3
-TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks, the local-agent
-list/info checks and the delegation tool/failure checks are filled there; the
-title-install and USB rows remain open.
+for local agents, `0.1.0-c0f76b5` for delegation and `0.1.0-653d046` for skills
+and `fs_edit`, elfldr payload path) is recorded in `docs/CONSOLE-REPORT.md`: P2
+boot/resources, P3 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks,
+the local-agent list/info checks, the delegation tool/failure checks and the
+skill/edit checks are filled there; the title-install and USB rows remain open.
+The harness is a userland payload and is not expected to survive rest mode.
 
 ## Record first
 
@@ -126,12 +127,20 @@ received any arguments.
       returns `ok:false` and logs `delegate !`.
 - [ ] A real parent→child delegated model turn runs on hardware (requires a
       staged provider key).
+- [ ] `--tools` lists `skill` and `fs_edit`; a staged `<name>/SKILL.md` pack is
+      listed and loaded, and a bundled resource reads back.
+- [ ] A skill resource traversal (`../../etc/hosts`) and an `fs_edit` outside
+      the write roots are both refused with no write.
+- [ ] `fs_edit` changes one unique match; a two-match edit is refused until
+      `replace_all` is set, and the file is unchanged by the refusal.
 - [ ] A plugin that crashes or hangs does not take the harness with it — record
       which isolation strategy was in place.
 
 ## P6 — Session
 
 - [ ] Ten minutes of use with no terminal: browse, download, cancel, locate.
+- [ ] After the console wakes from rest mode, the payload is relaunched and
+      runs; do not expect it to have survived rest mode.
 - [ ] Text entry is possible without a keyboard (or the LAN surface carried it).
 - [ ] Output renders without clipping on a TV at normal viewing distance.
 

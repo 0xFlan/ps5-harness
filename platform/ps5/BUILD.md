@@ -14,12 +14,12 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,281,904 | `d8220e3d29e744735dcd63ad00b9734698b6e4fd3286a5b10dcea2b0c7c9d9b7` |
-| `harness.elf` | 9,188,192 | `ab6a6b072cb048acbe5aae2f2471d586419f001bbe6426ea4785a7781f5c446b` |
+| `eboot.bin` | 7,344,816 | `c8954690f17045f6347149a337ae995a396f0c415a7d498bb12acfbf573b172b` |
+| `harness.elf` | 9,261,680 | `6ae4672c2bdf05ecb5683e2a5a62f5030e4278159828745aa6a335ed94eb3049` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-c0f76b5` (the delegation build). The build id
+Measured from build id `0.1.0-653d046` (skills and `fs_edit`). The build id
 embeds `VERSION` and the commit, so any commit or source change alters the two
 binaries; quote the build id, not only a hash, in a console report.
 
@@ -48,7 +48,7 @@ Every production source file is compiled for the target:
 src/agent.cpp  src/agents.cpp src/core.cpp  src/delegation.cpp
 src/endpoints.cpp src/http.cpp src/json.cpp src/main.cpp src/paths.cpp
 src/plugins.cpp src/policy.cpp src/pool.cpp src/resources.cpp src/runtime.cpp
-src/secrets.cpp src/sha256.cpp platform/ps5/console_compat.cpp
+src/secrets.cpp src/sha256.cpp src/skills.cpp platform/ps5/console_compat.cpp
 ```
 
 The static dependencies come from the PacBrew v0.41.1 image:
@@ -244,13 +244,35 @@ printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agen
 is the console check that works before an API key is staged. To run a turn, pass
 `--agent <name>` and `--prompt` through the same `file:` URI.
 
+### Skills and file edits
+
+Skills are directories under `/data/homebrew/skills/<name>/` on the console
+(`skills` on the host), each with a `SKILL.md`. `skills_dir` in the main config
+or `--skills <dir>` selects another root; a profile cannot set it. Stage a pack
+with the normal upload path, then list or load it without a rebuild:
+
+```bash
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--skills%%20/data/homebrew/skills%%20--call%%20skill%%20--args%%20%%7B%%7D\n' \
+  | nc -w 30 <console-ip> 9021
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--skills%%20/data/homebrew/skills%%20--call%%20skill%%20--args%%20%%7B%%22name%%22%%3A%%22console-notes%%22%%7D\n' \
+  | nc -w 30 <console-ip> 9021
+```
+
+`fs_write` creates or replaces a file under the write roots. `fs_edit` replaces
+exact text and refuses a missing or ambiguous match unless `replace_all` is
+true; it caps the file at 8 MiB and renames a sibling temporary file into place.
+Both are compiled into every run, including delegated children. The default
+prompt tells the model to read before editing and to report the path from the
+tool result.
+
 ### Observed on hardware
 
 The 2026-11-18 runs used the web file manager to stage files and read
 `/data/ps5-harness-agent.log`. The core checks below, including the 1 GiB
 transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`;
-the delegation build is `0.1.0-c0f76b5`. `docs/CONSOLE-REPORT.md` has the full
-transcript; the short form is:
+the delegation checks ran on `0.1.0-c0f76b5`; the skills and edit checks ran on
+`0.1.0-653d046`. `docs/CONSOLE-REPORT.md` has the full transcript; the short
+form is:
 
 | Check | Result |
 |---|---|
@@ -266,6 +288,7 @@ transcript; the short form is:
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
 | Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
 | Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `c0f76b5` |
+| Skills and edits | 9 tools including `skill`/`fs_edit`; two packs listed, loaded and read a resource; skill traversal and outside-root edit refused; one edit replaced, a two-match edit refused (`653d046`) |
 | Title install | not tested |
 
 ### Install as a title (untested sequence)

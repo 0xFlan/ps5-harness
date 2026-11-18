@@ -19,8 +19,8 @@ The loop is the boring part. The point is the extension contract:
                         │ ToolRegistry
         ┌───────────────┴───────────┬───────────────┐
         │ builtin tools (src/main)  │               │
-        │ fs_list/read/write,       │               │
-        │ http_get, download        │               │
+        │ fs_list/read/write/edit,  │               │
+        │ http_get, download, skill │               │
         ├───────────────────────────┤               │
         │ endpoint manifests        │  plugins      │
         │ (src/endpoints.cpp)       │ (src/plugins) │
@@ -34,7 +34,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # policy-surface, core, resources, runtime, hardening, package and e2e
+make test           # policy-surface, core, resources, runtime, hardening, agents, skills, package and e2e
 make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
@@ -67,6 +67,7 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 |---|---|
 | Paths canonicalised (`realpath`), symlinks resolved, `..` rejected, boundary checked with a separator | `src/paths.cpp` |
 | Reads and writes confined to configured roots; config, credentials and state denied by name | `src/paths.cpp`, `src/main.cpp` |
+| Skills are read-only instruction packs; resource paths are canonicalised and confined to the skill directory | `src/skills.cpp` |
 | Every tool result scrubbed of known secret values before it enters the message array | `src/secrets.cpp`, `src/agent.cpp` |
 | Manifests are https-only, host-policied, private/loopback ranges denied, DNS re-checked and pinned | `src/policy.cpp`, `src/http.cpp` |
 | Buffered responses capped at 4 MB; downloads stream to disk with Range resume and sha256 | `src/http.cpp` |
@@ -74,7 +75,8 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 | Plugin results go into a **host-owned** buffer — nothing is freed across the ABI | `include/ps5h/plugin_api.h` |
 | The model endpoint is policy-checked too — the API key never travels over cleartext or to a private address | `src/agent.cpp` |
 
-`fs_write` and `download` refuse any path outside `allowed_roots`. Nothing
+`fs_write`, `fs_edit` and `download` refuse any path outside `allowed_roots`.
+`skill` refuses a name or resource outside the skills directory. Nothing
 disables TLS verification; there is no debug flag that does.
 
 ### Testing the provider round trip
@@ -181,9 +183,9 @@ overrides both. The file name is the agent name: `<dir>/<name>.json`.
 `system_prompt_file` is canonicalised and must stay inside the profile
 directory; both prompt forms are capped at 64 KiB. A profile cannot set
 `allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
-`plugins_dir`, `api_key_env` or `delegation_max_depth` — those stay in the main
-config, so a profile cannot widen its own permissions. Explicit `--model` and
-`--max-steps` flags win over the profile.
+`plugins_dir`, `skills_dir`, `api_key_env` or `delegation_max_depth` — those
+stay in the main config, so a profile cannot widen its own permissions.
+Explicit `--model` and `--max-steps` flags win over the profile.
 
 ### Delegating to another profile
 
@@ -200,7 +202,8 @@ parent's tool registry. That copy keeps the parent's `PathGuard`, `UrlPolicy`,
 secrets and endpoint/plugin tools, so delegation cannot widen filesystem,
 network or credential access. A profile that names `allowed_roots`,
 `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`, `plugins_dir`,
-`api_key_env` or `delegation_max_depth` is rejected before the child starts.
+`skills_dir`, `api_key_env` or `delegation_max_depth` is rejected before the
+child starts.
 
 `delegation_max_depth` in the config (default 2; `--max-depth` overrides, and 0
 disables delegation) limits nesting. The child reserves steps and tokens from
@@ -241,6 +244,78 @@ printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agen
   | nc -w 30 <console-ip> 9021
 ```
 
+## Editing local files
+
+Every run gets `fs_write` and `fs_edit`, and every delegated child receives the
+same two tools through the inherited registry. Both write only under
+`allowed_roots`, after the path is canonicalised and checked against the
+secret-name rules:
+
+- `fs_write(path, content)` creates or replaces a whole file. Use it for a new
+  file or when the whole content genuinely changes.
+- `fs_edit(path, old, new)` replaces exact text. The match must be unique unless
+  `replace_all` is true, so a stale or ambiguous edit is refused instead of
+  silently changing the wrong place. The file is read first, capped at 8 MiB,
+  and the new content is written beside it and renamed into place.
+
+Reading a file before editing it is part of the default prompt. A refusal names
+the reason: outside the roots, denied path, text not found, or text appears more
+than once.
+
+## Skills
+
+A skill is a folder of local instructions, not code and not a new permission.
+Put it under the skills root:
+
+```
+<skills_dir>/<name>/SKILL.md
+```
+
+Default skills directory: `/data/homebrew/skills` on the console, `skills` on
+the host. `skills_dir` in the config sets another default, and `--skills <dir>`
+overrides both. `SKILL.md` may start with simple frontmatter:
+
+```markdown
+---
+name: console-notes
+description: Create, append to and review notes on the console.
+---
+
+# Console notes
+
+1. Read the notes file before changing it.
+2. Use fs_edit for a targeted append, or fs_write to create it.
+3. Report the exact path from the tool result.
+```
+
+`name` must match the directory; `description` is what `skill` lists. The file
+is capped at 256 KiB. The tool lists packs when `name` is omitted, loads one by
+name, or reads a bundled file with `resource`:
+
+```json
+{"name":"console-notes"}
+{"name":"file-audit","resource":"report-template.md"}
+```
+
+```bash
+./build/harness --skills examples/skills --call skill --args '{}'
+./build/harness --skills examples/skills --call skill \
+  --args '{"name":"file-audit","resource":"report-template.md"}'
+```
+
+Resource paths are canonicalised, must stay inside that skill's folder, and are
+denied by the same secret-name rules as `fs_read`; a symlink that leaves the
+folder is refused. Resource output is clipped to the runtime tool-output budget.
+
+A skill is guidance the model follows with the tools it already has. It cannot
+set `allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
+`plugins_dir`, `skills_dir`, `api_key_env` or `delegation_max_depth`, and
+loading one registers no tool and changes no guard. The directory is read on
+every launch, so staging a pack on the console needs no rebuild.
+
+`examples/skills/` has two working packs: `console-notes` and `file-audit`
+(with a bundled `report-template.md`).
+
 ## Building for the PS5
 
 The real agent, not the bring-up probe. `make -C platform/ps5` cross-compiles
@@ -278,6 +353,17 @@ same numbers on the host.
 it is not the package artifact. `platform/ps5/BUILD.md` records the SDK and
 PacBrew pins, artifact hashes, the shims and the console commands.
 
+### Rest mode
+
+The harness does not run in rest mode. It is a userland payload started by
+elfldr; entering rest mode suspends the console's userland and tears down the
+payload, the elfldr listener on 9021 and the file-manager listener on 8888. No
+tool call, skill, file edit or model turn can run until the console is awake and
+the payload is launched again. There is no wake-on-LAN, background service or
+scheduled-run path in this build, and installing `eboot.bin` as a title does not
+change that. Wake the console first, then relaunch. Nothing here keeps a process
+alive across rest mode.
+
 Remaining:
 
 1. Install `eboot.bin` as a title and check the fake-SELF `--paid`/`--ptype`
@@ -297,7 +383,8 @@ Verified on the host:
 - `make test`: policy-surface, core, resources, runtime (CPU/fd/memory/free
   space budget, parallel executor), hardening (paths, redaction, sha256,
   streaming download with resume/verify, body cap, URL policy, deadlines),
-  PS5 package validation and end-to-end provider suites
+  agent-profile and skill tests, PS5 package validation and end-to-end provider
+  suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
   clean
@@ -312,6 +399,12 @@ Verified on the host:
   also covers max-depth refusal, exact step/token refund accounting, explicit
   `--model`/`--max-steps` precedence, unknown profiles, self-delegation,
   policy-key rejection and budget exhaustion
+- **Skills and targeted edits**: `skills_test` covers frontmatter, listing,
+  bundled resources, traversal, symlink and secret-name refusal; the e2e CLI
+  test lists and loads a skill, reads its resource, edits one unique match,
+  refuses an ambiguous match, applies `replace_all`, refuses a write outside
+  the roots, and asserts that a delegated child's tool schema still carries
+  `skill` and `fs_edit`
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
 - **Full provider round trip** through the test build of the CLI
   (`build/harness_e2e`, same sources plus the test hook) against a local
@@ -337,7 +430,7 @@ Verified on the host:
   --resources` prints this Mac's profile
 
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
-`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`):
+`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -360,6 +453,14 @@ Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
   closed and logged `delegate ! ... cannot load agent`. No provider key was
   staged, so a delegated model turn was not run on hardware; the host e2e suite
   covers that path.
+- **Skills and targeted edits** — on `0.1.0-653d046`, `--tools` listed 9 tools
+  including `skill` and `fs_edit`; two packs staged under
+  `/data/homebrew/skills` listed and loaded, and a bundled resource returned its
+  contents. `../../etc/hosts` as a skill resource and an `fs_edit` on
+  `/etc/hosts` were both refused. `fs_edit` changed one occurrence, a read-back
+  returned `alpha new omega`, and a two-match edit was refused until
+  `replace_all` was set. `--agent-info` printed
+  `skills_dir=/data/homebrew/skills`.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
 - **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a
@@ -375,6 +476,9 @@ local-agent run.
 
 Not verified or not built:
 
+- **Rest mode is unsupported.** No payload runs while the console is in rest
+  mode; this was not changed by this build, and it was not tested by suspending
+  the console.
 - **The title path is uninstalled.** `eboot.bin` was not installed or launched
   from the shell; the fake SELF, SFO key set and `--paid`/`--ptype` values still
   need a loader. A title launch also supplies no argv or environment, so the

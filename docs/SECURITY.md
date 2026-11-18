@@ -49,7 +49,8 @@ test that proves it must ship with the change.
 1. **Paths are canonicalised before any filesystem operation.** `realpath` the
    root at startup, canonicalise the target, require `target == root` or
    `target.startswith(root + "/")`, resolve symlinks, reject `..` and embedded
-   NUL. Prefix comparison alone is a bug (see A1).
+   NUL. Prefix comparison alone is a bug (see A1). The same rule covers
+   `fs_write`, `fs_edit`, skill resources and profile prompt files.
 2. **Secrets are never in the context window.** Credentials come from
    environment variables, are read at call time, and are never written to
    config, logs, tool results, or docs. Every tool result passes a redaction
@@ -79,10 +80,18 @@ test that proves it must ship with the change.
 10. **Delegation never widens a capability.** A child profile only selects a
     prompt, model, temperature, token cap and step cap. It receives a copy of
     the parent's tools and therefore the same canonicalised roots, URL policy,
-    secrets and endpoint/plugin surface. Profiles cannot set boundary keys or
-    `delegation_max_depth`. Nesting depth, self-delegation and the shared
-    parent step/token pool are enforced before a child starts; refusals return
-    a clear error and are logged.
+    secrets and endpoint/plugin surface. Profiles cannot set boundary keys
+    (`allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
+    `plugins_dir`, `skills_dir`, `api_key_env`) or `delegation_max_depth`.
+    Nesting depth, self-delegation and the shared parent step/token pool are
+    enforced before a child starts; refusals return a clear error and are
+    logged.
+11. **Skills are instructions, not capabilities.** A skill is a directory under
+    the configured skills root with a size-capped `SKILL.md` and optional
+    bundled files. Names are restricted, every path is canonicalised and must
+    stay inside that skill's directory, and secret-named paths are denied.
+    Loading a skill registers no tool and changes no root, URL policy, secret
+    or delegation limit. A profile cannot set `skills_dir`.
 
 ## Secret handling
 
@@ -114,6 +123,7 @@ rejects both the cleartext endpoint and the flag.
 | Tier | What the user is trusting | Default |
 |---|---|---|
 | Built-in tools | This repo | On |
+| Skill pack | Local instructions the model may follow; read-only and path-confined | On for the configured directory |
 | Manifest | Network access to the declared host; the JSON was reviewed | Off unless a directory is passed |
 | Plugin | Arbitrary code, network, filesystem within sandbox | Off; explicit path only |
 | Registry index | Nothing beyond transport integrity — entries are not vouched for | Off |
@@ -125,9 +135,10 @@ the author's own.
 ## Privacy
 
 Tool results and conversation history are sent to the model provider. That
-includes file contents the user asked to read and API responses from manifests.
-Say so in the UI the first time a file is read, and keep session transcripts
-local with a clear delete path.
+includes file contents the user asked to read, API responses from manifests and
+any skill instructions or bundled resources loaded with `skill`. Say so in the
+UI the first time a file is read, and keep session transcripts local with a
+clear delete path.
 
 ## Submission checklist (before the catalog PR)
 

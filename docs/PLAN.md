@@ -27,8 +27,9 @@ measurement remain open.
 ## What exists today
 
 `ps5-harness` builds on macOS with `-Wall -Wextra` and no warnings. `make test`
-runs the host suites plus the PS5 package validator. Four built-in tools
-(`fs_list`, `fs_read`, `fs_write`, `http_get`), manifest compilation
+runs the host suites plus the PS5 package validator. Built-in tools
+(`fs_list`, `fs_read`, `fs_write`, `fs_edit`, `http_get`, `download`, `skill`),
+manifest compilation
 (`examples/endpoints/archive.json` → 3 tools), and a `.so` plugin loading
 through the C ABI all work. One live HTTPS call to
 `archive.org/advancedsearch.php` returned real records. Local agent profiles
@@ -36,7 +37,11 @@ through the C ABI all work. One live HTTPS call to
 from JSON files on disk; editing a profile changes the next run without a
 rebuild. A running agent can call `delegate` to hand a bounded subtask to
 another profile; the child inherits the parent's tools and security policy and
-charges its steps/tokens to the parent's budget. The runtime derives its worker
+charges its steps/tokens to the parent's budget. Skills are local `SKILL.md`
+packs listed and loaded through a path-confined tool; `fs_edit` makes a targeted
+replacement instead of rewriting a whole file. Both are built-ins, so every
+profile and delegated child receives them under the same main-config roots. The
+runtime derives its worker
 count, response buffers and download capacity from a measured resource profile
 rather than host constants.
 
@@ -206,6 +211,17 @@ reach the provider request. Console-verified on `0.1.0-4d7499f`: `--list-agents`
 read profiles from `/data/homebrew`, `--agent-info` resolved both an inline
 prompt and a `system_prompt_file`, and editing a profile changed the next run
 without a rebuild.
+
+Skills are the other side of the local extension surface: a directory
+`<skills_dir>/<name>/SKILL.md` with optional frontmatter and bundled files. The
+`skill` tool lists packs, loads instructions and reads a resource; paths are
+canonicalised, confined to that skill and denied by the secret-name rules. A
+skill registers no tool and cannot change roots, URL policy, secrets,
+`skills_dir` or the delegation depth. Profiles and delegated children get the
+same tools. Console-verified on `0.1.0-653d046`: two staged packs listed and
+loaded, a bundled resource read back, a parent-directory resource was refused,
+and `fs_edit` changed one unique match while refusing an ambiguous one and a
+write outside the roots.
 
 The delegation extension exposes a `delegate(profile, task)` tool. The child
 receives a copy of the parent's tools, so the parent's `PathGuard`, URL policy,

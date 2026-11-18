@@ -15,20 +15,20 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`) |
 
-Current artifacts on disk (delegation build):
+Current artifacts on disk (skills/edit build `0.1.0-653d046`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,281,904 | `d8220e3d29e744735dcd63ad00b9734698b6e4fd3286a5b10dcea2b0c7c9d9b7` |
-| `harness.elf` | 9,188,192 | `ab6a6b072cb048acbe5aae2f2471d586419f001bbe6426ea4785a7781f5c446b` |
+| `eboot.bin` | 7,344,816 | `c8954690f17045f6347149a337ae995a396f0c415a7d498bb12acfbf573b172b` |
+| `harness.elf` | 9,261,680 | `6ae4672c2bdf05ecb5683e2a5a62f5030e4278159828745aa6a335ed94eb3049` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
-`0.1.0-c0f76b5`.
+`0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`.
 
 ## How it was launched
 
@@ -260,6 +260,79 @@ provider, including the parent `delegate` tool call, the child profile request,
 a child `fs_read` refused by the inherited parent root, the child answer
 returned to the parent, max-depth refusal, and exact step/token refunds.
 
+## Skills and targeted edits — build 0.1.0-653d046
+
+This build was cross-compiled from commit `653d046`, uploaded to
+`/data/harness.elf`, and its two example packs were staged under
+`/data/homebrew/skills/` through the file manager's nested upload path. The log
+records the new build:
+
+```
+[harness] build=0.1.0-653d046 title=PHAR00001
+```
+
+`--tools` listed nine tools: the six built-ins (`fs_list`, `fs_read`,
+`fs_write`, `fs_edit`, `http_get`, `download`), the plugin's `hello_echo`, the
+new `skill` tool and `delegate`. The two relevant descriptions are:
+
+```
+fs_edit  (30000 ms)
+    Replace exact text in a file inside the write roots. Refuses a missing or
+    ambiguous match; pass replace_all to change every occurrence. ...
+skill  (30000 ms)
+    List local skills, or load one skill's instructions by name. ...
+```
+
+`--call skill` with no name listed both packs, including their descriptions:
+
+```json
+{
+  "ok": true,
+  "skills": [
+    {"description": "Create, append to and review a plain-text notes file ...", "name": "console-notes"},
+    {"description": "Audit one directory on the console and report ...", "name": "file-audit"}
+  ]
+}
+```
+
+Loading `console-notes` returned the 1,127-byte `SKILL.md` body (frontmatter
+removed, `clipped: false`). Loading
+`{"name":"file-audit","resource":"report-template.md"}` returned the bundled
+235-byte template. A traversal resource,
+`{"name":"console-notes","resource":"../../etc/hosts"}`, failed closed:
+
+```json
+{"error": "resource is outside the skill directory", "ok": false}
+```
+
+`--agent-info archivist` now also prints the selected skills root:
+
+```
+name=archivist
+model=gpt-4o-mini
+max_steps=8
+delegation_max_depth=2
+skills_dir=/data/homebrew/skills
+```
+
+On the same build, `fs_write` created `/data/ps5-harness-edit.txt` with 16 bytes
+(`alpha old omega`). `fs_edit` with `old=old`, `new=new` returned
+`{"bytes": 16, "path": "/data/ps5-harness-edit.txt", "replaced": 1}`, and a
+follow-up `fs_read` returned `alpha new omega`. A file containing `x x` then
+refused a two-match edit:
+
+```
+refused: old text appears 2 times in /data/ps5-harness-edit.txt; include more context or pass replace_all
+```
+
+An edit to `/etc/hosts`, outside the write roots, returned
+`refused: path is outside the write roots`. Both refusals happened before any
+write.
+
+No provider key was staged, so the model did not choose a skill or an edit on
+hardware. The host e2e suite drives both tools through the real CLI and asserts
+that a delegated child's tool schema still contains `skill` and `fs_edit`.
+
 ## P5 — extension contract
 
 The `hello` plugin was built outside the package with only
@@ -279,3 +352,6 @@ it. That isolation choice was not tested with a crashing plugin.
 - A delegated parent→child model turn on hardware; the `delegate` tool and its
   fail-closed path are console-verified, but no child provider call was made.
 - The exact CA bundle path and resolver used.
+- Rest mode. The harness is a userland payload; it has no path to keep running
+  while the console is suspended, and this build was not tested by entering
+  rest mode. Wake the console and relaunch the payload.
