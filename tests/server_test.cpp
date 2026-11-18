@@ -150,7 +150,16 @@ int main() {
 
   const std::string page = request(port, "GET", "/", "");
   assert(page.find("200 OK") != std::string::npos);
-  assert(body_of(page).find("PS5 Harness") != std::string::npos);
+  const std::string page_body = body_of(page);
+  assert(page_body.find("PS5 Harness") != std::string::npos);
+  // The workspace carries a keyboard/controller/touchpad/dictation input layer.
+  assert(page_body.find("id=\"osk\"") != std::string::npos);
+  assert(page_body.find("id=\"mic-button\"") != std::string::npos);
+  assert(page_body.find("id=\"input-pill\"") != std::string::npos);
+  assert(page_body.find("id=\"virtual-pointer\"") != std::string::npos);
+  assert(page_body.find("navigator.getGamepads") != std::string::npos);
+  assert(page_body.find("pad.touches") != std::string::npos);
+  assert(page_body.find("SpeechRecognition") != std::string::npos);
 
   const std::string unauth = request(port, "GET", "/api/state", "");
   assert(unauth.find("401 Unauthorized") != std::string::npos);

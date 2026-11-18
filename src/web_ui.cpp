@@ -26,6 +26,7 @@ body{
 }
 button,textarea{font:inherit}
 button{color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid #66b7ff;outline-offset:2px}
 #app{display:grid;grid-template-columns:248px minmax(0,1fr) 304px;height:100vh}
 .sidebar,.inspector{background:rgba(9,15,25,.82);backdrop-filter:blur(18px);min-height:0}
 .sidebar{border-right:1px solid var(--line);display:flex;flex-direction:column;padding:22px 16px}
@@ -143,6 +144,52 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
   border-radius:10px;padding:10px 13px;font-size:12px;color:#dcecff;opacity:0;
   transform:translateY(8px);transition:.2s;pointer-events:none;z-index:30}
 #toast.show{opacity:1;transform:none}
+button.pill{font:inherit;cursor:pointer}
+.input-pill{border-color:#2b5c8e;color:#a9d2ff;background:#0b1a2c}
+.input-pill.on{border-color:#42d392;color:#b8ffe0;background:#0b241e}
+.composer-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.icon-btn{border:1px solid #27476d;background:#0b1727;color:#c4dcf8;border-radius:8px;
+  min-width:32px;height:30px;padding:0 8px;font-size:13px}
+.icon-btn:hover,.icon-btn:focus-visible{border-color:#4b91d8;background:#122741}
+.icon-btn.listening{border-color:#ff9f6b;color:#ffe0cf;background:#2a1711;
+  animation:micPulse 1.1s ease-in-out infinite}
+@keyframes micPulse{50%{box-shadow:0 0 0 4px #ff9f6b22}}
+.mic-status{font-size:10px;color:var(--dim);max-width:180px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.osk{position:fixed;left:50%;bottom:112px;transform:translateX(-50%);z-index:25;
+  width:min(780px,calc(100vw - 32px));background:rgba(8,15,26,.98);border:1px solid #2c5684;
+  border-radius:16px;padding:12px;box-shadow:0 24px 90px #000c,inset 0 1px 0 #ffffff12}
+.osk.hidden,.input-help.hidden{display:none}
+.osk-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:0 2px 9px;font-size:10px;letter-spacing:.12em;color:#9bb9dc}
+.osk-head b{color:#e3f0ff;font-weight:600;letter-spacing:.04em}
+.osk-close{border:0;background:none;color:#8ea3bf;font-size:11px;padding:2px 4px}
+.osk-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px}
+.osk-key{min-height:34px;border:1px solid #27476d;border-radius:7px;background:#0c1a2b;
+  color:#dcecff;font-size:12px;line-height:1;padding:2px;touch-action:manipulation}
+.osk-key:hover,.osk-key:focus-visible{border-color:#4b91d8;background:#173252}
+.osk-key.space{grid-column:span 3}.osk-key.wide{grid-column:span 2}
+.osk-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-top:7px}
+.osk-actions .osk-key{font-size:10px}
+#virtual-pointer{position:fixed;left:0;top:0;width:18px;height:18px;z-index:60;
+  border:2px solid #d9efff;border-radius:50%;background:#2f8cff55;pointer-events:none;
+  box-shadow:0 0 0 3px #05080eaa,0 0 18px #2f8cffcc;opacity:0;transform:translate(-50%,-50%)}
+#virtual-pointer.visible{opacity:1}
+#virtual-pointer:after{content:"";position:absolute;left:7px;top:7px;width:2px;height:2px;
+  border-radius:50%;background:#fff}
+.input-help{position:fixed;inset:0;z-index:35;display:grid;place-items:center;
+  background:#03060bb8;backdrop-filter:blur(12px);padding:20px}
+.help-card{width:min(600px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;
+  background:#0a1320;border:1px solid #2b527e;border-radius:18px;padding:24px;
+  box-shadow:0 30px 100px #000}
+.help-card h2{margin:0 0 7px;font-size:20px}
+.help-card p{color:var(--muted);font-size:12px;margin:0 0 14px}
+.help-card dl{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;margin:0 0 16px;font-size:12px}
+.help-card dt{color:#cfe7ff;font-weight:600;white-space:nowrap}
+.help-card dd{margin:0;color:var(--muted)}
+.help-card .help-note{border-left:2px solid #2f8cff;padding:2px 0 2px 10px;color:#9fbbdb}
+.help-card button{border:1px solid #3f8fe8;background:#1d67c5;border-radius:9px;padding:9px 14px;
+  font-weight:700;margin-top:13px}
 @media (max-width:1150px){
   #app{grid-template-columns:220px minmax(0,1fr)}
   .inspector{display:none;position:fixed;right:0;top:72px;bottom:0;width:min(340px,100vw);z-index:12;box-shadow:-18px 0 50px rgba(0,0,0,.35)}
@@ -158,7 +205,16 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
 @media (max-width:760px){#app{grid-template-columns:1fr}.sidebar{display:none}
   .topbar{padding:0 16px}.messages{padding:22px 16px 82px}.composer-wrap{padding:0 12px 70px}
   .status .pill{display:none}
-  .inspector{top:72px;left:0;width:100vw}}
+  .inspector{top:72px;left:0;width:100vw}
+  .composer-hint{display:none}
+  .composer-tools{width:100%;justify-content:space-between}
+  .mic-status{max-width:130px}
+  .osk{left:10px;right:10px;bottom:78px;transform:none;width:auto;padding:9px}
+  .osk-grid{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+  .osk-key{min-height:36px;font-size:11px}
+  .osk-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .help-card{padding:18px}.help-card dl{grid-template-columns:1fr;gap:2px}
+  .help-card dd{margin-bottom:8px}}
 @media (min-width:1151px){.mobile-nav{display:none}}
 </style>
 </head>
@@ -188,6 +244,7 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
       <div><div class="crumb">PS5 HARNESS / CHAT</div><h1>Console workspace</h1></div>
       <div class="status">
         <span class="pill full" id="mode">FULL ACCESS</span>
+        <button class="pill input-pill" id="input-pill" type="button" title="Keyboard, controller and voice input help">KEYBOARD + MOUSE</button>
         <span class="pill" id="model">model</span>
         <span class="ctx"><i id="ctxbar"></i></span>
       </div>
@@ -214,8 +271,14 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
       <form class="composer" id="composer">
         <textarea id="prompt" rows="2" placeholder="Ask the harness to inspect, build, edit or investigate…"></textarea>
         <div class="composer-row">
-          <span class="composer-hint">Enter to send · Shift+Enter for a new line</span>
-          <button class="send" id="send" type="submit">Send</button>
+          <span class="composer-hint">Enter to send · Shift+Enter for a new line · Ctrl/⌘K focuses</span>
+          <div class="composer-tools">
+            <span class="mic-status" id="mic-status" aria-live="polite"></span>
+            <button class="icon-btn" id="osk-button" type="button" title="Open the on-screen keyboard" aria-label="Open the on-screen keyboard">⌨</button>
+            <button class="icon-btn" id="mic-button" type="button" title="Dictate with the browser microphone" aria-label="Dictate with the browser microphone" aria-pressed="false">🎙</button>
+            <button class="icon-btn" id="input-help-button" type="button" title="Input help" aria-label="Input help">?</button>
+            <button class="send" id="send" type="submit">Send</button>
+          </div>
         </div>
       </form>
     </div>
@@ -244,6 +307,31 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
     </div>
   </aside>
 </div>
+
+<div id="osk" class="osk hidden" role="dialog" aria-modal="true" aria-labelledby="osk-title">
+  <div class="osk-head">
+    <span><b id="osk-title">On-screen keyboard</b> · <span id="osk-target">composer</span></span>
+    <button class="osk-close" id="osk-close" type="button">Close</button>
+  </div>
+  <div class="osk-grid" id="osk-grid"></div>
+  <div class="osk-actions" id="osk-actions"></div>
+</div>
+<div id="input-help" class="input-help hidden" role="dialog" aria-modal="true" aria-labelledby="input-help-title">
+  <div class="help-card">
+    <h2 id="input-help-title">Keyboard, controller and voice</h2>
+    <p>Use whichever input is in front of you. The composer stays a normal text field.</p>
+    <dl>
+      <dt>Keyboard + mouse</dt><dd>Type in the composer. Enter sends, Shift+Enter adds a line, Ctrl/⌘K returns to the composer. Every button, panel and tool chip is clickable.</dd>
+      <dt>Controller buttons</dt><dd>D-pad or left stick moves focus; ✕ activates; ○ goes back; □ opens the keyboard; △ focuses the composer; Options toggles the keyboard; Create opens this help; L1/R1 switch Activity and Tools.</dd>
+      <dt>Touchpad + pointer</dt><dd>Touch moves the pointer when the browser exposes gamepad touch surfaces; touchpad click, R3 or the touchpad button clicks. If coordinates are not exposed, use the right stick as a pointer and L3 to show it.</dd>
+      <dt>Dictation</dt><dd>The mic button uses browser speech recognition and inserts final phrases at the cursor. The device running this page must expose the microphone.</dd>
+    </dl>
+    <p class="help-note">Speech recognition needs HTTPS or localhost. The default LAN HTTP address will show that requirement instead of silently failing.</p>
+    <p class="help-note">A headset paired to the console is not visible to a remote browser. Select the controller or headset as the audio input on the device running this page. On a browser without Web Speech, use that device's own dictation key.</p>
+    <button id="help-close" type="button">Close</button>
+  </div>
+</div>
+<div id="virtual-pointer" aria-hidden="true"></div>
 
 <div id="login" class="hidden">
   <form class="login-card" id="login-form">
@@ -492,6 +580,497 @@ $('composer').addEventListener('submit', async (event) => {
 $('prompt').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('composer').requestSubmit(); }
 });
+
+/* ---- input layer: keyboard, mouse, controller, touchpad and dictation ---- */
+const inputState = {
+  pad: null, padIndex: null, padId: '', lastButtons: [], lastDir: '', nextMove: 0,
+  pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+  pointerVisible: false, touchActive: false, touchAt: 0, touchX: 0, touchY: 0,
+  osk: false, oskViaController: false, oskTarget: null,
+  caret: { start: 0, end: 0 }, shift: false,
+  listening: false, micStarting: false, micRetries: 0, recognition: null
+};
+const OSK_ROWS = [
+  ['q','w','e','r','t','y','u','i','o','p'],
+  ['a','s','d','f','g','h','j','k','l'],
+  ['z','x','c','v','b','n','m','-','_','.'],
+  ['1','2','3','4','5','6','7','8','9','0'],
+  ['@','#','$','%','&','*','(',')','+','=']
+];
+function isEditable(el) {
+  return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable);
+}
+function isVisible(el) {
+  if (!el || el.closest('.hidden')) return false;
+  const css = getComputedStyle(el);
+  return css.display !== 'none' && css.visibility !== 'hidden' && el.getClientRects().length > 0;
+}
+function visibleFocusables() {
+  return Array.from(document.querySelectorAll(
+    'button:not([disabled]),textarea:not([disabled]),input:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'
+  )).filter(isVisible);
+}
+function saveCaret(target) {
+  if (!isEditable(target)) return;
+  const start = Number.isInteger(target.selectionStart) ? target.selectionStart : target.value.length;
+  const end = Number.isInteger(target.selectionEnd) ? target.selectionEnd : start;
+  inputState.caret = { start: start, end: end };
+}
+function focusMove(direction) {
+  const items = visibleFocusables();
+  if (!items.length) return;
+  const active = document.activeElement;
+  if (!isVisible(active) || items.indexOf(active) < 0) {
+    const preferred = inputState.osk ? items.find((item) => item.closest('#osk')) : null;
+    (preferred || items[0]).focus({ preventScroll: true });
+    return;
+  }
+  const from = active.getBoundingClientRect();
+  const cx = from.left + from.width / 2, cy = from.top + from.height / 2;
+  let best = null, bestScore = Infinity;
+  for (const item of items) {
+    if (item === active) continue;
+    const box = item.getBoundingClientRect();
+    const x = box.left + box.width / 2, y = box.top + box.height / 2;
+    const dx = x - cx, dy = y - cy;
+    let primary = 0, secondary = 0;
+    if (direction === 'right' && dx > 3) { primary = dx; secondary = Math.abs(dy); }
+    else if (direction === 'left' && dx < -3) { primary = -dx; secondary = Math.abs(dy); }
+    else if (direction === 'down' && dy > 3) { primary = dy; secondary = Math.abs(dx); }
+    else if (direction === 'up' && dy < -3) { primary = -dy; secondary = Math.abs(dx); }
+    if (!primary) continue;
+    const score = primary + secondary * 2.2;
+    if (score < bestScore) { bestScore = score; best = item; }
+  }
+  if (best) {
+    best.focus({ preventScroll: true });
+    best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+}
+function activateFocused() {
+  const active = document.activeElement;
+  if (!active || active === document.body) { $('prompt').focus(); return; }
+  if (isEditable(active)) {
+    active.focus();
+    openOSK(true, active);
+    return;
+  }
+  if (typeof active.click === 'function') active.click();
+}
+function controllerBack() {
+  if (inputState.osk) { closeOSK(); return; }
+  if (!$('input-help').classList.contains('hidden')) { toggleHelp(false); return; }
+  if (document.body.classList.contains('mobile-panel')) { closeMobilePanel(); return; }
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+function scrollMessages(delta) {
+  const messages = $('messages');
+  if (messages) messages.scrollTop += delta;
+  else window.scrollBy(0, delta);
+}
+function setPointer(x, y) {
+  inputState.pointer.x = Math.max(8, Math.min(window.innerWidth - 8, x));
+  inputState.pointer.y = Math.max(8, Math.min(window.innerHeight - 8, y));
+  inputState.pointerVisible = true;
+  const pointer = $('virtual-pointer');
+  pointer.style.left = inputState.pointer.x + 'px';
+  pointer.style.top = inputState.pointer.y + 'px';
+  pointer.classList.add('visible');
+  pointer.style.transform = 'translate(-50%,-50%)';
+}
+function movePointer(dx, dy) {
+  setPointer(inputState.pointer.x + dx, inputState.pointer.y + dy);
+}
+function clickPointer() {
+  setPointer(inputState.pointer.x, inputState.pointer.y);
+  const target = document.elementFromPoint(inputState.pointer.x, inputState.pointer.y);
+  if (!target || target === $('virtual-pointer')) return;
+  const control = target.closest('button,a[href],textarea,input,[role="button"]') || target;
+  if (typeof control.focus === 'function') control.focus({ preventScroll: true });
+  if (typeof control.click === 'function') control.click();
+}
+function pointerFromTouch(touch) {
+  const pos = touch && touch.position;
+  if (!pos) return false;
+  setPointer((Number(pos.x) + 1) * window.innerWidth / 2,
+    (Number(pos.y) + 1) * window.innerHeight / 2);
+  return true;
+}
+function handleTouchpad(pad, now) {
+  const touches = pad.touches || [];
+  if (touches.length) {
+    const touch = touches[0];
+    const moved = pointerFromTouch(touch);
+    if (moved && !inputState.touchActive) {
+      inputState.touchActive = true;
+      inputState.touchAt = now;
+      inputState.touchX = inputState.pointer.x;
+      inputState.touchY = inputState.pointer.y;
+    }
+  } else if (inputState.touchActive) {
+    const held = now - inputState.touchAt;
+    const moved = Math.hypot(inputState.pointer.x - inputState.touchX,
+      inputState.pointer.y - inputState.touchY);
+    inputState.touchActive = false;
+    if (held < 280 && moved < 28) clickPointer();
+  }
+}
+function padLabel(pad) {
+  const id = String(pad && pad.id || '').toLowerCase();
+  if (id.indexOf('dualsense') >= 0) return 'DUALSENSE';
+  if (id.indexOf('dualshock') >= 0) return 'DUALSHOCK';
+  if (id.indexOf('wireless controller') >= 0) return 'WIRELESS CONTROLLER';
+  if (id.indexOf('xbox') >= 0) return 'XBOX PAD';
+  return 'CONTROLLER';
+}
+function setPad(pad) {
+  if (pad && (inputState.padIndex !== pad.index || inputState.padId !== pad.id)) {
+    inputState.padIndex = pad.index;
+    inputState.padId = pad.id;
+    inputState.lastButtons = [];
+    inputState.lastDir = '';
+  }
+  inputState.pad = pad;
+  $('input-pill').textContent = pad ? ('INPUT · ' + padLabel(pad)) : 'KEYBOARD + MOUSE';
+  $('input-pill').classList.toggle('on', !!pad);
+}
+function held(pad, index) {
+  const button = pad && pad.buttons && pad.buttons[index];
+  return !!(button && (button.pressed || button.value > 0.5));
+}
+function edge(pad, index) {
+  return held(pad, index) && !inputState.lastButtons[index];
+}
+function axis(pad, index) {
+  return pad && pad.axes && Number.isFinite(Number(pad.axes[index])) ? Number(pad.axes[index]) : 0;
+}
+function padDirection(pad) {
+  const x = axis(pad, 0), y = axis(pad, 1);
+  if (Math.abs(x) > 0.55 || Math.abs(y) > 0.55) {
+    if (Math.abs(x) > Math.abs(y)) return x > 0 ? 'right' : 'left';
+    return y > 0 ? 'down' : 'up';
+  }
+  if (held(pad, 12)) return 'up';
+  if (held(pad, 13)) return 'down';
+  if (held(pad, 14)) return 'left';
+  if (held(pad, 15)) return 'right';
+  return '';
+}
+function handlePad(pad, now) {
+  handleTouchpad(pad, now);
+  if (!inputState.touchActive) {
+    const rx = axis(pad, 2), ry = axis(pad, 3);
+    if (Math.abs(rx) > 0.18 || Math.abs(ry) > 0.18) {
+      movePointer(rx * 12, ry * 12);
+    }
+  }
+  const direction = padDirection(pad);
+  if (direction) {
+    const previous = inputState.lastDir;
+    if (direction !== previous || now >= inputState.nextMove) {
+      focusMove(direction);
+      inputState.lastDir = direction;
+      inputState.nextMove = now + (previous === direction ? 160 : 300);
+    }
+  } else { inputState.lastDir = ''; }
+  if (edge(pad, 0)) activateFocused();
+  if (edge(pad, 1)) controllerBack();
+  if (edge(pad, 2)) {
+    if (inputState.osk) backspaceOSK();
+    else openOSK(true, isEditable(document.activeElement) ? document.activeElement : $('prompt'));
+  }
+  if (edge(pad, 3)) { $('prompt').focus(); toast('Composer focused'); }
+  if (edge(pad, 4)) selectTab('activity');
+  if (edge(pad, 5)) selectTab('tools');
+  if (edge(pad, 6)) scrollMessages(-Math.round(window.innerHeight * 0.7));
+  if (edge(pad, 7)) scrollMessages(Math.round(window.innerHeight * 0.7));
+  if (edge(pad, 8)) toggleHelp();
+  if (edge(pad, 9)) toggleOSK(true);
+  if (edge(pad, 10)) { inputState.pointerVisible = !inputState.pointerVisible; $('virtual-pointer').classList.toggle('visible', inputState.pointerVisible); }
+  if (edge(pad, 11) || edge(pad, 17)) clickPointer();
+  if (edge(pad, 16)) toggleHelp();
+}
+function inputFrame(now) {
+  const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad) => pad && pad.connected) : [];
+  const pad = pads.length ? pads[0] : null;
+  if (pad) {
+    setPad(pad);
+    handlePad(pad, now);
+    inputState.lastButtons = (pad.buttons || []).map((button) => !!button && (button.pressed || button.value > 0.5));
+  } else if (inputState.pad) {
+    setPad(null);
+    inputState.lastButtons = [];
+    inputState.lastDir = '';
+  }
+  requestAnimationFrame(inputFrame);
+}
+
+function buildOSK() {
+  const grid = $('osk-grid');
+  OSK_ROWS.forEach((row) => row.forEach((key) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'osk-key';
+    button.dataset.oskKey = key;
+    button.textContent = key;
+    grid.appendChild(button);
+  }));
+  const actions = [
+    ['shift', 'Shift'], ['backspace', '⌫'], ['space', 'Space'],
+    ['enter', 'Enter'], ['close', 'Close']
+  ];
+  actions.forEach(([action, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'osk-key' + (action === 'space' ? ' space' : '');
+    button.dataset.oskAction = action;
+    button.textContent = label;
+    $('osk-actions').appendChild(button);
+  });
+}
+function refreshOSKLetters() {
+  document.querySelectorAll('[data-osk-key]').forEach((button) => {
+    const key = button.dataset.oskKey;
+    button.textContent = inputState.shift && /^[a-z]$/.test(key) ? key.toUpperCase() : key;
+  });
+  const shift = document.querySelector('[data-osk-action="shift"]');
+  if (shift) { shift.textContent = inputState.shift ? 'SHIFT ON' : 'Shift'; shift.setAttribute('aria-pressed', String(inputState.shift)); }
+}
+function openOSK(viaController, target) {
+  if (!$('input-help').classList.contains('hidden')) toggleHelp(false);
+  const field = target && isEditable(target) ? target : $('prompt');
+  inputState.oskTarget = field;
+  saveCaret(field);
+  $('osk-target').textContent = field.id === 'prompt' ? 'message' : (field.id || 'field');
+  $('osk').classList.remove('hidden');
+  inputState.osk = true;
+  inputState.oskViaController = !!viaController;
+  if (viaController) {
+    setTimeout(() => {
+      const first = $('osk-grid').querySelector('button');
+      if (first) first.focus({ preventScroll: true });
+    }, 0);
+  } else {
+    field.focus({ preventScroll: true });
+  }
+}
+function closeOSK() {
+  const target = inputState.oskTarget;
+  $('osk').classList.add('hidden');
+  inputState.osk = false;
+  inputState.oskTarget = null;
+  if (target && isVisible(target)) target.focus({ preventScroll: true });
+}
+function toggleOSK(viaController) {
+  if (inputState.osk) closeOSK();
+  else openOSK(!!viaController, isEditable(document.activeElement) ? document.activeElement : $('prompt'));
+}
+function insertText(text) {
+  const target = inputState.oskTarget || (isEditable(document.activeElement) ? document.activeElement : $('prompt'));
+  if (!target) return;
+  let start = inputState.caret.start, end = inputState.caret.end;
+  if (document.activeElement === target && Number.isInteger(target.selectionStart)) {
+    start = target.selectionStart; end = target.selectionEnd;
+  }
+  start = Math.max(0, Math.min(target.value.length, start));
+  end = Math.max(start, Math.min(target.value.length, end));
+  target.setRangeText(text, start, end, 'end');
+  inputState.caret = { start: start + text.length, end: start + text.length };
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function backspaceOSK() {
+  const target = inputState.oskTarget || (isEditable(document.activeElement) ? document.activeElement : $('prompt'));
+  if (!target) return;
+  let start = inputState.caret.start, end = inputState.caret.end;
+  if (document.activeElement === target && Number.isInteger(target.selectionStart)) {
+    start = target.selectionStart; end = target.selectionEnd;
+  }
+  if (start === end && start > 0) start -= 1;
+  if (end <= start) return;
+  target.setRangeText('', start, end, 'end');
+  inputState.caret = { start: start, end: start };
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function submitPrompt() {
+  const target = inputState.oskTarget;
+  closeOSK();
+  if (target && target.id !== 'prompt' && target.form) { target.form.requestSubmit(); return; }
+  $('composer').requestSubmit();
+}
+function oskAction(action) {
+  if (action === 'shift') { inputState.shift = !inputState.shift; refreshOSKLetters(); }
+  else if (action === 'backspace') backspaceOSK();
+  else if (action === 'space') insertText(' ');
+  else if (action === 'enter') {
+    if (inputState.shift) insertText('\n');
+    else submitPrompt();
+  } else if (action === 'close') closeOSK();
+}
+function toggleHelp(force) {
+  const help = $('input-help');
+  const show = force === undefined ? help.classList.contains('hidden') : !!force;
+  if (show && inputState.osk) closeOSK();
+  help.classList.toggle('hidden', !show);
+  if (show) { const close = $('help-close'); if (close) close.focus({ preventScroll: true }); }
+}
+
+function setMicStatus(message) { $('mic-status').textContent = message || ''; }
+function stopDictation() {
+  inputState.listening = false;
+  inputState.micStarting = false;
+  inputState.micRetries = 0;
+  if (inputState.recognition) {
+    try { inputState.recognition.abort(); } catch (_) {}
+    inputState.recognition = null;
+  }
+  $('mic-button').classList.remove('listening');
+  $('mic-button').setAttribute('aria-pressed', 'false');
+  setMicStatus('Dictation stopped');
+}
+async function startDictation() {
+  if (inputState.listening) { stopDictation(); return; }
+  if (inputState.micStarting) return;
+  if (!inputState.oskTarget) saveCaret($('prompt'));
+  if (!window.isSecureContext) {
+    setMicStatus('HTTPS or localhost required');
+    toast('Dictation needs HTTPS or localhost. Open this page through a trusted HTTPS tunnel or localhost.');
+    toggleHelp(true);
+    return;
+  }
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    setMicStatus('Browser has no speech recognition');
+    toast('This browser has no Web Speech recognition. Use its keyboard dictation key or another browser.');
+    return;
+  }
+  inputState.micStarting = true;
+  $('mic-button').classList.add('listening');
+  $('mic-button').setAttribute('aria-pressed', 'true');
+  setMicStatus('Preparing microphone…');
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const devices = navigator.mediaDevices.enumerateDevices
+        ? await navigator.mediaDevices.enumerateDevices() : [];
+      stream.getTracks().forEach((track) => track.stop());
+      const inputs = devices.filter((device) => device.kind === 'audioinput');
+      const chosen = inputs.find((device) => /controller|headset|wireless|dualsense|pulse|microphone|mic/i.test(device.label || '')) ||
+        inputs.find((device) => device.deviceId === 'default') || inputs[0];
+      setMicStatus(chosen && chosen.label ? ('Mic: ' + chosen.label) : 'Mic ready');
+    }
+    const recognition = new Recognition();
+    recognition.lang = navigator.language || 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    inputState.recognition = recognition;
+    inputState.listening = true;
+    inputState.micRetries = 0;
+    recognition.onresult = (event) => {
+      inputState.micRetries = 0;
+      let finalText = '', interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const phrase = result[0] ? result[0].transcript : '';
+        if (result.isFinal) finalText += phrase; else interimText += phrase;
+      }
+      if (finalText.trim()) {
+        const before = inputState.oskTarget ? inputState.oskTarget.value : $('prompt').value;
+        const spacer = before && !/\s$/.test(before) ? ' ' : '';
+        insertText(spacer + finalText.trim() + ' ');
+      }
+      if (interimText.trim()) setMicStatus('Listening: ' + interimText.trim());
+    };
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        stopDictation();
+        setMicStatus('Microphone permission denied');
+        toast('Microphone permission was denied.');
+      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setMicStatus('Dictation: ' + event.error);
+      }
+    };
+    recognition.onend = () => {
+      if (!inputState.listening) return;
+      if (inputState.micRetries++ < 4) {
+        setTimeout(() => {
+          if (!inputState.listening || !inputState.recognition) return;
+          try { inputState.recognition.start(); } catch (_) { stopDictation(); }
+        }, 250);
+      } else stopDictation();
+    };
+    recognition.start();
+    setMicStatus('Listening…');
+  } catch (error) {
+    inputState.micStarting = false;
+    inputState.listening = false;
+    $('mic-button').classList.remove('listening');
+    $('mic-button').setAttribute('aria-pressed', 'false');
+    const name = error && error.name ? error.name : '';
+    setMicStatus(name === 'NotAllowedError' ? 'Microphone permission denied' : 'Microphone unavailable');
+    toast(name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Could not open the microphone: ' + String(error.message || error));
+  } finally { inputState.micStarting = false; }
+}
+
+$('osk-grid').addEventListener('click', (event) => {
+  const key = event.target.closest('[data-osk-key]');
+  if (key) {
+    const value = inputState.shift && /^[a-z]$/.test(key.dataset.oskKey) ? key.dataset.oskKey.toUpperCase() : key.dataset.oskKey;
+    insertText(value);
+    if (inputState.shift) { inputState.shift = false; refreshOSKLetters(); }
+  }
+});
+$('osk-actions').addEventListener('click', (event) => {
+  const action = event.target.closest('[data-osk-action]');
+  if (action) oskAction(action.dataset.oskAction);
+});
+$('osk-button').addEventListener('click', () => toggleOSK(false));
+$('osk-close').addEventListener('click', closeOSK);
+$('mic-button').addEventListener('click', startDictation);
+$('input-pill').addEventListener('click', () => toggleHelp());
+$('input-help-button').addEventListener('click', () => toggleHelp(true));
+$('help-close').addEventListener('click', () => toggleHelp(false));
+$('prompt').addEventListener('select', () => saveCaret($('prompt')));
+$('prompt').addEventListener('click', () => saveCaret($('prompt')));
+$('prompt').addEventListener('input', () => saveCaret($('prompt')));
+document.addEventListener('keydown', (event) => {
+  const active = document.activeElement;
+  if (event.key === 'Escape') {
+    if (inputState.osk) { closeOSK(); event.preventDefault(); return; }
+    if (!$('input-help').classList.contains('hidden')) { toggleHelp(false); event.preventDefault(); return; }
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault(); $('prompt').focus(); return;
+  }
+  if (event.key === '?' && !isEditable(active) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault(); toggleHelp(); return;
+  }
+  if (inputState.osk && !isEditable(active) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (event.key.length === 1) { event.preventDefault(); insertText(event.key); }
+    else if (event.key === 'Backspace') { event.preventDefault(); backspaceOSK(); }
+    else if (event.key === 'Enter') { event.preventDefault(); oskAction('enter'); }
+  }
+});
+window.addEventListener('gamepadconnected', (event) => {
+  const pad = event.gamepad;
+  if (pad) {
+    setPad(pad);
+    handlePad(pad, performance.now());
+    inputState.lastButtons = (pad.buttons || []).map((button) => !!button && (button.pressed || button.value > 0.5));
+  }
+  toast('Controller connected: ' + padLabel(pad));
+});
+window.addEventListener('gamepaddisconnected', () => {
+  setPad(null);
+  inputState.lastButtons = [];
+  inputState.lastDir = '';
+  toast('Controller disconnected');
+});
+buildOSK();
+refreshOSKLetters();
+setPad(null);
+requestAnimationFrame(inputFrame);
+
 bindChips();
 boot();
 </script>

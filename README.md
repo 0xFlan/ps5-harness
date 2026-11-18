@@ -341,6 +341,42 @@ phone on the same LAN, and stores the transcript locally. History is saved after
 every turn, loaded on restart, and compacted only when the approximate transcript
 budget is exceeded; the newest turns are kept verbatim.
 
+### Input
+
+The page is usable without a console-side keyboard or mouse, and without the
+terminal. Input is handled by the browser that opens the page:
+
+- **Physical keyboard and mouse** — native DOM input. Type in the composer,
+  paste, select, click, scroll, use Tab/Shift+Tab and Ctrl/⌘K to return to the
+  composer. Enter sends; Shift+Enter inserts a newline.
+- **Controller** — the Gamepad API maps D-pad/left stick to spatial focus,
+  Cross/A to activate, Circle/B to go back, Square/X to open the on-screen
+  keyboard (or backspace while it is open), Triangle/Y to focus the composer,
+  Options/Start to toggle the keyboard, Create/Select for input help, L1/R1 for
+  Activity/Tools, triggers for scrolling, and L3/R3 or the touchpad button for
+  the pointer.
+- **On-screen keyboard** — a controller-navigable keyboard with letters, digits,
+  punctuation, Shift, Backspace, Space and Enter. Controller focus rings move
+  between keys; mouse/touch clicks work too. It targets the composer or the
+  login token field, whichever was focused when opened.
+- **Touchpad and pointer** — when the browser exposes Gamepad touch surfaces,
+  touch position moves a virtual pointer, a short tap or the touchpad click
+  activates the control under it. Browsers that do not expose touch coordinates
+  fall back to the right stick and R3/L3, with the same pointer overlay.
+- **Dictation** — the mic button starts the browser's Web Speech recognition
+  (Chrome/Edge/Safari, where available), inserts final phrases at the cursor and
+  shows the selected audio input. The browser's selected microphone is used;
+  select a controller headset as the system/browser input if that is the mic you
+  want. A browser without Web Speech can still use its own keyboard dictation
+  key into the composer.
+
+The page reads the device running the browser. A keyboard, mouse, controller or
+headset paired only to the console is not forwarded to a remote browser by this
+payload. Web Speech and microphone permissions require HTTPS or localhost; the
+default `http://<console-ip>:8789` page explains that requirement when the mic
+button is pressed. Use a trusted HTTPS tunnel or a localhost port forward when
+voice input is required.
+
 ```bash
 ./build/harness --config config.example.json --serve 8787 \
   --session /data/ps5h-session.json
