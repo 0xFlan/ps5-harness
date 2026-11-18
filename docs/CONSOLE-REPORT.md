@@ -497,7 +497,7 @@ session. A local OpenAI-compatible stub was exposed to the console over an HTTPS
 summaries; it did **not** execute any tool. The harness performed every call on
 the console.
 
-Turn 1 returned **200** in about 1.6 s, used **4 steps**, and recorded:
+Turn 1 returned **200**, used **4 steps**, and recorded:
 
 | Tool | Console result |
 |---|---|
