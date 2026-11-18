@@ -749,7 +749,7 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
   `d45b323`) serves the 53,581-byte UI over **HTTPS on 8790** (`200`), while the
   retained **HTTP 8789** input-build listener and the new **HTTP 8791** listener
   both still answer. The HTTPS certificate chain validates with
-  `curl --cacert /data/ps5h-cert.pem`; unauthenticated `/api/state` is `401` on
+  `curl --cacert <client-copy-of-ps5h-cert.pem>`; unauthenticated `/api/state` is `401` on
   both schemes, and the authenticated state reports build `0.1.0-https` with all
   20 tools and the unchanged 12-message session (7,611 context chars, three
   compactions). A real browser on the console HTTPS origin reported

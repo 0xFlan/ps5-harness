@@ -663,8 +663,9 @@ change payload bytes.
 | `harness.elf` | 9,761,576 bytes, sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
 | `eboot.bin` (not installed) | 7,773,504 bytes, sha256 `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
 
-`curl --cacert /data/ps5h-cert.pem https://192.168.4.100:8790/` returned
-**200** and the page was 53,581 bytes. The self-signed certificate must be
+With a client copy of the certificate at `/tmp/ps5h-cert.pem`, `curl --cacert
+/tmp/ps5h-cert.pem https://192.168.4.100:8790/` returned **200** and the page was
+53,581 bytes. The self-signed certificate must be
 trusted by the browser for a warning-free normal session; the exact macOS and
 iOS steps are in the README’s **HTTPS and microphone trust** section. The
 browser evidence below used a test-profile certificate bypass because that
