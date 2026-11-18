@@ -1,13 +1,23 @@
 // P2 bring-up payload. Its only job is to prove, on the console, that the
-// cross-built artifact runs far enough to report which build it is and how much
-// space each candidate mount has. No tools, no network, no plugins.
+// cross-built artifact runs far enough to report which build it is, where it is
+// running, and how much space each candidate mount has. No tools, no network,
+// no plugins.
 //
-// Host-verified: compiles to an x86-64 FreeBSD ELF and packs to a fake SELF.
-// Hardware-unverified: nothing here has run on a PS5.
+// Host-verified: compiles to an x86-64 FreeBSD ELF, packs to a fake SELF, and
+// the same source built for the host writes its log. Hardware-unverified:
+// nothing here has run on a PS5.
+//
+// Logging is deliberately fd-based and the fatal-signal handler is
+// async-signal-safe: on a console there is no debugger, so a crash has to leave
+// a line behind rather than a system error dialog.
 
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
 #include <sys/statvfs.h>
+#include <unistd.h>
 
 #ifndef PS5H_BUILD_ID
 #define PS5H_BUILD_ID "unknown"
@@ -15,59 +25,214 @@
 
 namespace {
 
-struct Mount {
-  const char* path;
-  const char* log_path;
+int g_log_fd = -1;
+
+// Every mount worth reporting. The log file itself goes to the first path in
+// kLogPaths that accepts a create/append.
+constexpr const char* kMounts[] = {
+    "/data",
+    "/user/homebrew",
+    "/mnt/usb0",
+    "/mnt/usb1",
 };
 
-// /data is the console's writable data mount; the USB paths are where a
-// jailbroken console usually exposes sticks. Report each one we can stat, so a
-// single run answers "which of these exist and how big are they".
-constexpr Mount kMounts[] = {
-    {"/data", "/data/ps5-harness-bringup.log"},
-    {"/user/homebrew", "/user/homebrew/ps5-harness-bringup.log"},
-    {"/mnt/usb0", "/mnt/usb0/ps5-harness-bringup.log"},
-    {"/mnt/usb1", "/mnt/usb1/ps5-harness-bringup.log"},
+// /data is the documented writable mount; the app's own folder is the fallback
+// when the sandbox denies /data (a fake-SELF payload may have no cwd write
+// either, which the log line then makes obvious).
+constexpr const char* kLogPaths[] = {
+    "/data/ps5-harness-bringup.log",
+    "/user/homebrew/ps5-harness-bringup.log",
+    "./ps5-harness-bringup.log",
+    "/mnt/usb0/ps5-harness-bringup.log",
+    "/mnt/usb1/ps5-harness-bringup.log",
 };
 
-void report(std::FILE* out, const char* text) {
-  std::fputs(text, out);
-  std::fputc('\n', out);
+void write_all(int fd, const char* text, std::size_t length) {
+  while (length > 0) {
+    const ssize_t written = ::write(fd, text, length);
+    if (written < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return;
+    }
+    text += written;
+    length -= static_cast<std::size_t>(written);
+  }
+}
+
+void log_line(const char* text) {
+  char buffer[512];
+  const int length = std::snprintf(buffer, sizeof buffer, "%s\n", text);
+  if (length <= 0) {
+    return;
+  }
+  const std::size_t size =
+      static_cast<std::size_t>(length) < sizeof buffer ? static_cast<std::size_t>(length)
+                                                       : sizeof buffer - 1;
+  write_all(STDOUT_FILENO, buffer, size);
+  if (g_log_fd >= 0) {
+    write_all(g_log_fd, buffer, size);
+  }
+}
+
+// --- async-signal-safe crash reporting -------------------------------------
+
+char* append_text(char* out, char* end, const char* text) {
+  while (*text != '\0' && out < end) {
+    *out++ = *text++;
+  }
+  return out;
+}
+
+char* append_unsigned(char* out, char* end, unsigned long long value, unsigned base) {
+  char digits[24];
+  int count = 0;
+  do {
+    const unsigned digit = static_cast<unsigned>(value % base);
+    digits[count++] = static_cast<char>(digit < 10 ? '0' + digit : 'a' + (digit - 10));
+    value /= base;
+  } while (value != 0 && count < static_cast<int>(sizeof digits));
+  while (count > 0 && out < end) {
+    *out++ = digits[--count];
+  }
+  return out;
+}
+
+const char* signal_name(int signal) {
+  switch (signal) {
+    case SIGABRT: return "SIGABRT";
+    case SIGBUS: return "SIGBUS";
+    case SIGFPE: return "SIGFPE";
+    case SIGILL: return "SIGILL";
+    case SIGSEGV: return "SIGSEGV";
+#ifdef SIGSYS
+    case SIGSYS: return "SIGSYS";
+#endif
+    case SIGTRAP: return "SIGTRAP";
+    default: return "signal";
+  }
+}
+
+void on_fatal_signal(int signal, siginfo_t* info, void* /*context*/) {
+  char buffer[256];
+  char* out = buffer;
+  char* const end = buffer + sizeof buffer;
+  out = append_text(out, end, "ps5-harness bringup CRASH build=");
+  out = append_text(out, end, PS5H_BUILD_ID);
+  out = append_text(out, end, " signal=");
+  out = append_unsigned(out, end, static_cast<unsigned long long>(signal), 10);
+  out = append_text(out, end, " (");
+  out = append_text(out, end, signal_name(signal));
+  out = append_text(out, end, ") addr=");
+  const unsigned long long address =
+      info != nullptr ? reinterpret_cast<unsigned long long>(info->si_addr) : 0ULL;
+  out = append_unsigned(out, end, address, 16);
+  out = append_text(out, end, "\n");
+  const std::size_t length = static_cast<std::size_t>(out - buffer);
+  if (g_log_fd >= 0) {
+    write_all(g_log_fd, buffer, length);
+  }
+  write_all(STDERR_FILENO, buffer, length);
+  _exit(128 + signal);
+}
+
+void install_crash_handlers() {
+  static char alternate_stack[32 * 1024];
+  stack_t stack {};
+  stack.ss_sp = alternate_stack;
+  stack.ss_size = sizeof alternate_stack;
+  if (sigaltstack(&stack, nullptr) != 0) {
+    log_line("ps5-harness bringup: sigaltstack failed; crash handler may not "
+             "survive a stack overflow");
+  }
+
+  struct sigaction action {};
+  action.sa_sigaction = on_fatal_signal;
+  action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigemptyset(&action.sa_mask);
+  const int signals[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP};
+  for (const int signal : signals) {
+    if (sigaction(signal, &action, nullptr) != 0) {
+      char line[128];
+      std::snprintf(line, sizeof line,
+                    "ps5-harness bringup: sigaction(%d) failed errno=%d", signal, errno);
+      log_line(line);
+    }
+  }
+}
+
+bool open_log() {
+  for (const char* path : kLogPaths) {
+    const int fd = ::open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+      g_log_fd = fd;
+      char line[256];
+      std::snprintf(line, sizeof line, "ps5-harness bringup log=%s", path);
+      log_line(line);
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   char line[256];
-  std::snprintf(line, sizeof line, "ps5-harness bringup build=%s", PS5H_BUILD_ID);
+  std::snprintf(line, sizeof line, "ps5-harness bringup build=%s pid=%ld uid=%ld",
+                PS5H_BUILD_ID, static_cast<long>(::getpid()),
+                static_cast<long>(::getuid()));
+  std::printf("%s\n", line);
 
-  // stdout only reaches the loader socket, so also append to the first mount
-  // that accepts a write; a title launched from the shell has no terminal.
-  std::FILE* log = nullptr;
-  for (const Mount& mount : kMounts) {
+  if (!open_log()) {
+    // stdout is the loader socket; say so loudly because there will be no file.
+    std::printf("ps5-harness bringup: no writable log path tried\n");
+  }
+
+  log_line(line);
+
+  char cwd[256];
+  if (::getcwd(cwd, sizeof cwd) != nullptr) {
+    std::snprintf(line, sizeof line, "ps5-harness bringup cwd=%s argc=%d", cwd, argc);
+  } else {
+    std::snprintf(line, sizeof line, "ps5-harness bringup cwd=<denied> argc=%d", argc);
+  }
+  log_line(line);
+  if (argc > 0 && argv != nullptr && argv[0] != nullptr) {
+    std::snprintf(line, sizeof line, "ps5-harness bringup argv0=%s", argv[0]);
+    log_line(line);
+  }
+
+  install_crash_handlers();
+
+  bool saw_mount = false;
+  for (const char* mount : kMounts) {
     struct statvfs vfs {};
-    if (statvfs(mount.path, &vfs) != 0) {
+    if (statvfs(mount, &vfs) != 0) {
+      std::snprintf(line, sizeof line, "%s unavailable errno=%d", mount, errno);
+      log_line(line);
       continue;
     }
+    saw_mount = true;
     const unsigned long long free_mib =
         static_cast<unsigned long long>(vfs.f_bavail) * vfs.f_frsize / (1024ULL * 1024ULL);
-    std::snprintf(line, sizeof line, "%s free %s = %llu MiB (block %lu)",
-                  PS5H_BUILD_ID, mount.path, free_mib,
+    const unsigned long long total_mib =
+        static_cast<unsigned long long>(vfs.f_blocks) * vfs.f_frsize / (1024ULL * 1024ULL);
+    std::snprintf(line, sizeof line, "%s free=%llu MiB total=%llu MiB block=%lu",
+                  mount, free_mib, total_mib,
                   static_cast<unsigned long>(vfs.f_frsize));
-    std::printf("%s\n", line);
-    if (log == nullptr) {
-      log = std::fopen(mount.log_path, "a");
-      if (log != nullptr) {
-        std::snprintf(line, sizeof line, "ps5-harness bringup build=%s", PS5H_BUILD_ID);
-        report(log, line);
-      }
-    }
-    if (log != nullptr) {
-      report(log, line);
-    }
+    log_line(line);
   }
-  if (log != nullptr) {
-    std::fclose(log);
+  if (!saw_mount) {
+    log_line("ps5-harness bringup: none of the candidate mounts could be stat'ed");
+  }
+
+  log_line("ps5-harness bringup: done");
+  if (g_log_fd >= 0) {
+    ::fsync(g_log_fd);
+    ::close(g_log_fd);
+    g_log_fd = -1;
   }
   return 0;
 }
