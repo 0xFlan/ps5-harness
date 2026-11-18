@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "ps5h/builtin_skills.h"
 #include "ps5h/json.h"
 #include "ps5h/skills.h"
 
@@ -159,9 +160,15 @@ void test_tool() {
   Json list_args = Json::object();
   Json listed = tool.handler(list_args);
   assert(listed["ok"].as_bool(false));
-  assert(listed["skills"].size() == 1);
-  assert(listed["skills"][static_cast<std::size_t>(0)]["name"].as_string() ==
-         "file-audit");
+  assert(listed["skills"].size() >= 7);
+  bool saw_disk = false;
+  bool saw_builtin = false;
+  for (const Json& entry : listed["skills"].items()) {
+    if (entry["name"].as_string() == "file-audit") saw_disk = true;
+    if (entry["name"].as_string() == "astrik") saw_builtin = true;
+  }
+  assert(saw_disk);
+  assert(saw_builtin);
 
   Json load_args = Json::object();
   load_args["name"] = "file-audit";
@@ -190,6 +197,45 @@ void test_tool() {
   assert(!refused["ok"].as_bool(true));
 }
 
+void test_builtin_packs() {
+  assert(find_builtin_skill("astrik") != nullptr);
+  assert(find_builtin_skill("artex") != nullptr);
+  assert(find_builtin_skill("strix") != nullptr);
+  assert(find_builtin_skill("cyber-strike-ai") != nullptr);
+  assert(find_builtin_skill("reverse-engineer-anything") != nullptr);
+  assert(find_builtin_skill("local-architect") != nullptr);
+  assert(find_builtin_skill("not-a-builtin") == nullptr);
+  for (const BuiltinSkill& skill : builtin_skills()) {
+    assert(!skill.name.empty());
+    assert(!skill.description.empty());
+    assert(skill.instructions.find("no executable code") !=
+           std::string::npos);
+  }
+
+  // Built-ins still list and load when no skills directory exists at all.
+  Tool tool = make_skill_tool("/tmp/ps5h-skills-does-not-exist", 20000);
+  Json listed = tool.handler(Json::object());
+  assert(listed["ok"].as_bool(false));
+  assert(listed["skills"].size() == builtin_skills().size());
+
+  Json load_args = Json::object();
+  load_args["name"] = "astrik";
+  Json loaded = tool.handler(load_args);
+  assert(loaded["ok"].as_bool(false));
+  assert(loaded["name"].as_string() == "astrik");
+  assert(loaded["instructions"].as_string().find("Evidence bar") !=
+         std::string::npos);
+  assert(loaded["resources"].size() == 0);
+
+  Json resource_args = Json::object();
+  resource_args["name"] = "astrik";
+  resource_args["resource"] = "anything.md";
+  Json resource = tool.handler(resource_args);
+  assert(!resource["ok"].as_bool(true));
+  assert(resource["error"].as_string().find("no bundled resources") !=
+         std::string::npos);
+}
+
 void test_limits() {
   const std::string root = make_temp_dir();
   assert(::mkdir((root + "/big").c_str(), 0700) == 0);
@@ -206,6 +252,7 @@ int main() {
   test_list_and_load();
   test_containment();
   test_tool();
+  test_builtin_packs();
   test_limits();
   std::printf("skills tests passed\n");
   return 0;

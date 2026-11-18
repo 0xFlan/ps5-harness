@@ -908,6 +908,160 @@ void test_delegation_refusals() {
          std::string::npos);
 }
 
+// Plan mode removes write/edit/download/HTTP tools from the registry itself.
+// A model that asks for fs_write gets a clean unknown-tool error and nothing is
+// created; the tool schema sent to the provider has no mutating names.
+void test_plan_mode_read_only() {
+  const std::string directory = make_temp_dir();
+  const std::string config_path = write_delegation_config(directory, 4, 500, 0);
+  const std::string target = directory + "/plan-should-not-exist.txt";
+
+  Json write_args = Json::object();
+  write_args["path"] = target;
+  write_args["content"] = "plan mode must not write this\n";
+  StubProvider stub(
+      {Reply{tool_call_reply("call_plan_write", "fs_write", write_args)},
+       Reply{final_reply("plan complete")}});
+
+  const CommandResult result = run_command(
+      "./build/harness_e2e --config " + quote(config_path) +
+      " --plan --base-url " + quote(stub.base_url()) +
+      " --test-allow-loopback-cleartext " + quote("make a local plan"));
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "plan CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+  assert(result.exit_code == 0);
+  assert(result.output.find("plan complete") != std::string::npos);
+  assert(::access(target.c_str(), F_OK) != 0);
+  assert(stub.wait_for_requests(2, 8000));
+  assert(stub.request_count() == 2);
+
+  const Json first = Json::parse(stub.request(0).body);
+  assert(first["tools"].is_array());
+  bool saw_fs_write = false;
+  bool saw_fs_edit = false;
+  bool saw_download = false;
+  bool saw_http = false;
+  bool saw_tree = false;
+  bool saw_recon = false;
+  bool saw_swarm = false;
+  for (const Json& tool : first["tools"].items()) {
+    const std::string name = tool["function"]["name"].as_string();
+    if (name == "fs_write") saw_fs_write = true;
+    if (name == "fs_edit") saw_fs_edit = true;
+    if (name == "download") saw_download = true;
+    if (name == "http_get") saw_http = true;
+    if (name == "fs_tree") saw_tree = true;
+    if (name == "env_info") saw_recon = true;
+    if (name == "swarm") saw_swarm = true;
+  }
+  assert(!saw_fs_write);
+  assert(!saw_fs_edit);
+  assert(!saw_download);
+  assert(!saw_http);
+  assert(saw_tree);
+  assert(saw_recon);
+  assert(saw_swarm);
+  assert(stub.request(1).body.find("unknown tool: fs_write") !=
+         std::string::npos);
+
+  const CommandResult tools = run_command(
+      "./build/harness_e2e --config " + quote(config_path) + " --plan --tools");
+  assert(tools.exit_code == 0);
+  assert(tools.output.find("  fs_tree  (") != std::string::npos);
+  assert(tools.output.find("  env_info  (") != std::string::npos);
+  assert(tools.output.find("  swarm  (") != std::string::npos);
+  assert(tools.output.find("  fs_write  (") == std::string::npos);
+  assert(tools.output.find("  fs_edit  (") == std::string::npos);
+  assert(tools.output.find("  download  (") == std::string::npos);
+  assert(tools.output.find("  http_get  (") == std::string::npos);
+}
+
+// A mission runs sequential steps and a bounded swarm lane group through the
+// real CLI. The second step must receive the first step's answer as context.
+void test_mission_and_swarm() {
+  const std::string directory = make_temp_dir();
+  const std::string agents = directory + "/agents";
+  assert(::mkdir(agents.c_str(), 0700) == 0);
+  write_profile(agents, "scout",
+                R"({"description":"Scout","system_prompt":"SCOUT PROMPT","max_steps":1,"max_tokens":100})");
+  write_profile(agents, "mapper",
+                R"({"description":"Mapper","system_prompt":"MAPPER PROMPT","max_steps":1,"max_tokens":100})");
+  const std::string config_path = write_delegation_config(directory, 8, 2000, 2);
+  const std::string mission_path = directory + "/mission.json";
+  write_text(mission_path, R"({
+    "name": "local-map",
+    "steps": [
+      {"id": "single", "profile": "scout", "task": "single lane",
+       "max_steps": 1, "max_tokens": 100},
+      {"id": "lanes", "swarm": [
+        {"profile": "scout", "task": "lane one", "max_steps": 1, "max_tokens": 100},
+        {"profile": "mapper", "task": "lane two", "max_steps": 1, "max_tokens": 100}
+      ]}
+    ]
+  })");
+
+  StubProvider stub({Reply{final_reply("single answer")},
+                     Reply{final_reply("lane one answer")},
+                     Reply{final_reply("lane two answer")}});
+  const CommandResult result = run_command(
+      "./build/harness_e2e --config " + quote(config_path) + " --agents " +
+      quote(agents) + " --mission " + quote(mission_path) + " --base-url " +
+      quote(stub.base_url()) + " --test-allow-loopback-cleartext");
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "mission CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+  assert(result.exit_code == 0);
+  assert(result.output.find("local-map") != std::string::npos);
+  assert(result.output.find("single answer") != std::string::npos);
+  assert(result.output.find("lane one answer") != std::string::npos);
+  assert(result.output.find("lane two answer") != std::string::npos);
+  assert(result.output.find("\"width\": 2") != std::string::npos);
+  assert(result.output.find("failed_step") == std::string::npos);
+  assert(stub.wait_for_requests(3, 8000));
+  assert(stub.request_count() == 3);
+
+  const Recorded first = stub.request(0);
+  assert(first.body.find("single lane") != std::string::npos);
+  assert(first.body.find("Prior mission observations") == std::string::npos);
+  for (std::size_t i = 1; i < 3; ++i) {
+    const Recorded lane = stub.request(i);
+    assert(lane.body.find("Prior mission observations") != std::string::npos);
+    assert(lane.body.find("single answer") != std::string::npos);
+    assert(lane.body.find("lane one") != std::string::npos ||
+           lane.body.find("lane two") != std::string::npos);
+  }
+}
+
+void test_swarm_width_limit() {
+  const std::string directory = make_temp_dir();
+  const std::string config_path = write_delegation_config(directory, 4, 500, 1);
+  Json tasks = Json::array();
+  for (int i = 0; i < 9; ++i) {
+    Json task = Json::object();
+    task["profile"] = "scout";
+    task["task"] = "x";
+    tasks.push_back(task);
+  }
+  Json arguments = Json::object();
+  arguments["tasks"] = tasks;
+  const CommandResult wide = run_command(
+      "./build/harness_e2e --config " + quote(config_path) +
+      " --call swarm --args " + quote(arguments.dump()));
+  assert(wide.exit_code == 0);
+  assert(wide.output.find("hard limit of 8") != std::string::npos);
+
+  Json empty = Json::object();
+  empty["tasks"] = Json::array();
+  const CommandResult none = run_command(
+      "./build/harness_e2e --config " + quote(config_path) +
+      " --call swarm --args " + quote(empty.dump()));
+  assert(none.exit_code == 0);
+  assert(none.output.find("non-empty tasks array") != std::string::npos);
+}
+
 Agent make_agent(const StubProvider& stub, ToolRegistry& registry, LogFn log,
                  const std::string& key_env = std::string(),
                  RuntimeBudget budget = RuntimeBudget{}) {
@@ -1103,6 +1257,12 @@ int main() {
   test_delegation_budget_accounting();
   std::printf("delegation refusals...\n");
   test_delegation_refusals();
+  std::printf("plan mode...\n");
+  test_plan_mode_read_only();
+  std::printf("mission and swarm...\n");
+  test_mission_and_swarm();
+  std::printf("swarm width...\n");
+  test_swarm_width_limit();
   std::printf("malformed provider response...\n");
   test_malformed_provider_response();
   std::printf("unknown tool...\n");

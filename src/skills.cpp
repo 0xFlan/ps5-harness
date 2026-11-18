@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "ps5h/builtin_skills.h"
 #include "ps5h/json.h"
 #include "ps5h/paths.h"
 
@@ -399,10 +400,10 @@ Tool make_skill_tool(std::string directory, std::size_t max_output) {
   Tool tool;
   tool.name = "skill";
   tool.description =
-      "List local skills, or load one skill's instructions by name. With a "
-      "name and resource, read a file bundled with that skill. Skills are "
-      "instructions only; they cannot widen the configured roots, URL policy, "
-      "secrets or delegation limits.";
+      "List local and built-in skills, or load one skill's instructions by "
+      "name. With a name and resource, read a file bundled with that skill. "
+      "Skills are instructions only; they cannot widen the configured roots, "
+      "URL policy, secrets or delegation limits.";
   Json properties = Json::object();
   properties["name"] = Json::object();
   properties["name"]["type"] = "string";
@@ -429,10 +430,29 @@ Tool make_skill_tool(std::string directory, std::size_t max_output) {
         return out;
       }
       std::string error;
-      const std::vector<SkillEntry> entries = list_skills(configured, &error);
-      if (!error.empty()) {
+      std::vector<SkillEntry> entries = list_skills(configured, &error);
+      // Built-ins are always available, even when no directory has been staged.
+      // A file with the same name takes precedence over the embedded copy.
+      for (const BuiltinSkill& builtin : builtin_skills()) {
+        const bool present = std::any_of(
+            entries.begin(), entries.end(),
+            [&builtin](const SkillEntry& entry) {
+              return entry.name == builtin.name;
+            });
+        if (!present) {
+          SkillEntry entry;
+          entry.name = builtin.name;
+          entry.description = builtin.description;
+          entries.push_back(std::move(entry));
+        }
+      }
+      std::sort(entries.begin(), entries.end(),
+                [](const SkillEntry& left, const SkillEntry& right) {
+                  return left.name < right.name;
+                });
+      if (entries.empty()) {
         out["ok"] = false;
-        out["error"] = error;
+        out["error"] = error.empty() ? "no skills available" : error;
         return out;
       }
       Json skills = Json::array();
@@ -458,6 +478,15 @@ Tool make_skill_tool(std::string directory, std::size_t max_output) {
       if (!read_skill_resource(configured, name, resource, 64 * 1024, &content,
                                &error)) {
         out["ok"] = false;
+        if (find_builtin_skill(name) != nullptr) {
+          // If no on-disk skill overrides the built-in, there is nowhere for a
+          // resource to live. Report that directly instead of a path error.
+          const SkillLoad disk = load_skill(configured, name, kMaxSkillBytes);
+          if (!disk.ok) {
+            out["error"] = "built-in skill has no bundled resources";
+            return out;
+          }
+        }
         out["error"] = error;
         return out;
       }
@@ -470,8 +499,20 @@ Tool make_skill_tool(std::string directory, std::size_t max_output) {
     }
 
     Json out = Json::object();
-    const SkillLoad loaded =
-        load_skill(configured, name, kMaxSkillBytes);
+    SkillLoad loaded = load_skill(configured, name, kMaxSkillBytes);
+    if (!loaded.ok) {
+      const bool absent =
+          loaded.error.find("no skill named") != std::string::npos ||
+          loaded.error.find("skills directory not found") !=
+              std::string::npos;
+      const BuiltinSkill* builtin = find_builtin_skill(name);
+      if (absent && builtin != nullptr) {
+        loaded.ok = true;
+        loaded.name = builtin->name;
+        loaded.description = builtin->description;
+        loaded.instructions = builtin->instructions;
+      }
+    }
     if (!loaded.ok) {
       out["ok"] = false;
       out["error"] = loaded.error;

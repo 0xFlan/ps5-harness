@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "ps5h/agent.h"
 #include "ps5h/core.h"
@@ -32,6 +33,18 @@ class DelegationBudget {
   long long tokens_;
 };
 
+struct DelegationLimits {
+  int max_steps = 0;       // 0 = profile/default
+  long long max_tokens = 0;  // 0 = profile/default
+};
+
+struct SwarmTask {
+  std::string profile;
+  std::string task;
+  int max_steps = 0;
+  long long max_tokens = 0;
+};
+
 struct DelegationConfig {
   std::string agents_dir;
   ModelConfig model;
@@ -53,7 +66,15 @@ class Delegator : public std::enable_shared_from_this<Delegator> {
   explicit Delegator(DelegationConfig config);
 
   Json run(const std::string& profile_name, const std::string& task, int depth,
-           const std::string& current_profile, const ToolRegistry& tools);
+           const std::string& current_profile, const ToolRegistry& tools,
+           const DelegationLimits& limits = DelegationLimits());
+
+  // Runs independent child tasks in parallel, bounded by kMaxSwarmWidth and by
+  // the same depth/budget/registry rules as delegate. Results preserve input
+  // order; one failed child does not cancel the others.
+  Json run_swarm(const std::vector<SwarmTask>& tasks, int depth,
+                 const std::string& current_profile,
+                 const ToolRegistry& tools);
 
  private:
   DelegationConfig config_;
@@ -67,5 +88,11 @@ class Delegator : public std::enable_shared_from_this<Delegator> {
 Tool make_delegate_tool(std::shared_ptr<Delegator> delegator, int depth,
                         std::string current_profile,
                         std::weak_ptr<const ToolRegistry> registry);
+
+// Binds the swarm tool. Width is capped at 8; each child is a normal delegated
+// run with the parent registry, so roots, policies and budgets still apply.
+Tool make_swarm_tool(std::shared_ptr<Delegator> delegator, int depth,
+                     std::string current_profile,
+                     std::weak_ptr<const ToolRegistry> registry);
 
 }  // namespace ps5h

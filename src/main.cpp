@@ -15,8 +15,10 @@
 #include "ps5h/delegation.h"
 #include "ps5h/endpoints.h"
 #include "ps5h/json.h"
+#include "ps5h/mission.h"
 #include "ps5h/paths.h"
 #include "ps5h/plugins.h"
+#include "ps5h/recon.h"
 #include "ps5h/policy.h"
 #include "ps5h/resources.h"
 #include "ps5h/runtime.h"
@@ -34,6 +36,24 @@
 namespace {
 
 using namespace ps5h;
+
+std::string add_plan_mode_prompt(const std::string& base) {
+  return base +
+         "\n\nPLAN MODE (read-only):\n"
+         "You may inspect files, probe the environment and load skills, but you "
+         "must not write, edit, download, fetch HTTP, or run mutating endpoint or "
+         "plugin tools. Those tools are absent from this run. Use env_info, "
+         "fs_tree, file_info, fs_strings and fs_read to gather evidence.\n"
+         "Produce a numbered plan with exact paths, owners/profiles, budgets, "
+         "evidence to capture, stop conditions and rollback for any later write. "
+         "Do not claim a step was executed. If the plan needs a write, say so "
+         "explicitly and wait for the operator to leave plan mode.\n";
+}
+
+bool is_mutating_tool(const std::string& name) {
+  return name == "fs_write" || name == "fs_edit" || name == "http_get" ||
+         name == "download";
+}
 
 std::string default_system_prompt() {
   return
@@ -521,6 +541,8 @@ void print_usage() {
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
       "  --max-depth <n>      Maximum delegate nesting depth (default 2, 0 disables)\n"
+      "  --plan               Read-only planning mode (no writes, edits, downloads or HTTP)\n"
+      "  --mission <file>     Run a bounded JSON mission (sequential steps and/or swarms)\n"
       "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
       "  --log <file>         Append diagnostics to a file (console default: /data/ps5-harness-agent.log)\n"
       "  --help               This message\n\n"
@@ -563,6 +585,8 @@ int main(int argc, char** argv) {
   bool list_agents = false;
   bool agent_info = false;
   bool system_prompt_from_config = false;
+  bool plan_mode = false;
+  std::string mission_path;
   int max_steps = 12;
   bool max_steps_from_flag = false;
   int max_delegation_depth = 2;
@@ -622,6 +646,10 @@ int main(int argc, char** argv) {
       show_tools = true;
     } else if (arg == "--resources") {
       show_resources = true;
+    } else if (arg == "--plan") {
+      plan_mode = true;
+    } else if (arg == "--mission") {
+      mission_path = next("--mission");
 #if defined(PS5H_TEST_HOOKS)
     } else if (arg == "--test-allow-loopback-cleartext") {
       policy = UrlPolicy::test_only_loopback_policy();
@@ -796,6 +824,13 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "delegation max depth must be between 0 and 8\n");
     return 2;
   }
+  if (plan_mode && !mission_path.empty()) {
+    std::fprintf(stderr, "--plan and --mission are mutually exclusive\n");
+    return 2;
+  }
+  if (plan_mode) {
+    system_prompt = add_plan_mode_prompt(system_prompt);
+  }
 
   if (agent_info) {
     if (!have_profile) {
@@ -908,14 +943,42 @@ int main(int argc, char** argv) {
   context.skills_dir = skills_dir;
   register_builtin_tools(registry, context);
 
-  EndpointCompiler compiler(http, env, log, policy, budget.buffered_response_bytes);
-  const std::size_t endpoint_tools = compiler.load_directory(endpoints_dir, registry);
-  if (endpoint_tools > 0) {
-    log("loaded " + std::to_string(endpoint_tools) + " endpoint manifest(s)");
-  }
+  ReconContext recon;
+  recon.read_guard = read_guard;
+  recon.resources = profile;
+  recon.budget = budget;
+  recon.build_id = PS5H_BUILD_ID;
+  recon.title_id = PS5H_TITLE_ID;
+  recon.write_roots = write_guard.roots();
+  recon.read_roots = read_guard.roots();
+  recon.skills_dir = skills_dir;
+  register_recon_tools(registry, recon);
 
-  PluginHost plugins(registry, http, env, log, budget.buffered_response_bytes);
-  plugins.load_directory(plugins_dir);
+  if (plan_mode) {
+    ToolRegistry read_only;
+    for (const Tool& tool : registry.tools()) {
+      if (is_mutating_tool(tool.name)) {
+        continue;
+      }
+      read_only.add(tool);
+    }
+    registry = std::move(read_only);
+    log("plan mode: read-only registry; writes, edits, downloads, HTTP, "
+        "endpoints and plugins are disabled");
+  } else {
+    EndpointCompiler compiler(http, env, log, policy,
+                              budget.buffered_response_bytes);
+    const std::size_t endpoint_tools =
+        compiler.load_directory(endpoints_dir, registry);
+    if (endpoint_tools > 0) {
+      log("loaded " + std::to_string(endpoint_tools) +
+          " endpoint manifest(s)");
+    }
+
+    PluginHost plugins(registry, http, env, log,
+                       budget.buffered_response_bytes);
+    plugins.load_directory(plugins_dir);
+  }
 
   DelegationConfig delegation;
   delegation.agents_dir = agents_dir;
@@ -933,6 +996,19 @@ int main(int argc, char** argv) {
   delegation.max_depth = max_delegation_depth;
   auto delegator = std::make_shared<Delegator>(std::move(delegation));
   registry.add(make_delegate_tool(delegator, 0, agent_name, registry_owner));
+  registry.add(make_swarm_tool(delegator, 0, agent_name, registry_owner));
+
+  if (!mission_path.empty()) {
+    MissionLoad loaded = load_mission(mission_path);
+    if (!loaded.ok) {
+      std::fprintf(stderr, "cannot load mission: %s\n",
+                   loaded.error.c_str());
+      return 2;
+    }
+    const Json result = run_mission(loaded.mission, *delegator, registry, log);
+    std::printf("%s\n", secrets.redact(result.dump(2)).c_str());
+    return result["ok"].as_bool(false) ? 0 : 1;
+  }
 
   if (!call_tool.empty()) {
     Json arguments = Json::object();
