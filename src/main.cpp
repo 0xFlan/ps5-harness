@@ -15,6 +15,7 @@
 #include "ps5h/paths.h"
 #include "ps5h/plugins.h"
 #include "ps5h/policy.h"
+#include "ps5h/resources.h"
 #include "ps5h/secrets.h"
 
 namespace {
@@ -324,6 +325,7 @@ void print_usage() {
       "  --model <name>       Override the model id\n"
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
+      "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
       "  --help               This message\n\n"
 #if defined(PS5H_TEST_HOOKS)
       "TEST BUILD ONLY:\n"
@@ -347,6 +349,7 @@ int main(int argc, char** argv) {
   std::string call_tool;
   std::string call_args = "{}";
   bool show_tools = false;
+  bool show_resources = false;
   bool base_url_from_flag = false;
   bool model_from_flag = false;
   int max_steps = 12;
@@ -385,6 +388,8 @@ int main(int argc, char** argv) {
       max_steps = std::atoi(next("--max-steps").c_str());
     } else if (arg == "--tools") {
       show_tools = true;
+    } else if (arg == "--resources") {
+      show_resources = true;
 #if defined(PS5H_TEST_HOOKS)
     } else if (arg == "--test-allow-loopback-cleartext") {
       policy = UrlPolicy::test_only_loopback_policy();
@@ -496,6 +501,14 @@ int main(int argc, char** argv) {
   if (read_guard.empty()) {
     std::fprintf(stderr, "invalid read roots: %s\n", guard_error.c_str());
     return 1;
+  }
+
+  if (show_resources) {
+    const ResourceProfile profile = probe_resources(read_roots);
+    for (const std::string& line : describe_resources(profile)) {
+      std::printf("%s\n", line.c_str());
+    }
+    return 0;
   }
 
   if (secret_env.empty()) {

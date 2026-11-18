@@ -26,9 +26,14 @@ ELF2SELF  := $(PS5_PAYLOAD_SDK)/samples/install_app/make_fself.py
 MAKE_SFO  := tools/make_sfo.py
 MAKE_ICON := tools/make_icon.py
 
+# The payload and the host harness share one resource probe so the numbers a
+# console reports use the same code an operator can run with --resources.
+RESOURCE_SRC := ../../src/resources.cpp
+RESOURCE_HDR := ../../include/ps5h/resources.h
+
 # make_fself.py accepts ET_EXEC (and SCE variants), not ET_DYN; the SDK's
 # driver defaults to PIE on this target, so opt out at the linker.
-CXXFLAGS += -std=c++20 -O2 -Wall -Wextra -Werror -Wl,--no-pie \
+CXXFLAGS += -std=c++20 -O2 -Wall -Wextra -Werror -Wl,--no-pie -I../../include \
             -DPS5H_BUILD_ID=\"$(BUILD_ID)\" -DPS5H_TITLE_ID=\"$(TITLE_ID)\"
 
 PKG     := $(OUT)/$(TITLE_ID)
@@ -54,8 +59,8 @@ host-assets: $(SFO) $(ICON)
 $(OUT):
 	@mkdir -p $(OUT)
 
-$(ELF): bringup.cpp | $(OUT)
-	$(CXX) $(CXXFLAGS) -o $@ $<
+$(ELF): bringup.cpp $(RESOURCE_SRC) $(RESOURCE_HDR) | $(OUT)
+	$(CXX) $(CXXFLAGS) -o $@ bringup.cpp $(RESOURCE_SRC)
 
 $(BIN): $(ELF) param.json | $(OUT)
 	@mkdir -p $(dir $@)sce_sys

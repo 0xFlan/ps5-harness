@@ -38,6 +38,12 @@ build/core_test.o: tests/core_test.cpp | build
 build/core_test: $(LIB_OBJ) build/core_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+build/resources_test.o: tests/resources_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/resources_test: $(LIB_OBJ) build/resources_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
 build/hardening_test.o: tests/hardening_test.cpp | build
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -60,9 +66,10 @@ build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
 build/ps5_package_test: tests/ps5_package_test.cpp | build
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/hardening_test build/e2e_agent_test build/ps5_package_test
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/hardening_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
+	./build/resources_test
 	./build/hardening_test
 	@$(MAKE) -C platform/ps5 host-assets
 	./build/ps5_package_test $(PS5_PACKAGE) $(PS5_PACKAGE_MODE)

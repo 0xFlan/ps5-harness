@@ -11,13 +11,19 @@
 // async-signal-safe: on a console there is no debugger, so a crash has to leave
 // a line behind rather than a system error dialog.
 
+#include <pthread.h>
+
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
-#include <sys/statvfs.h>
+#include <string>
 #include <unistd.h>
+#include <vector>
+
+#include "ps5h/resources.h"
 
 #ifndef PS5H_BUILD_ID
 #define PS5H_BUILD_ID "unknown"
@@ -30,6 +36,9 @@
 namespace {
 
 int g_log_fd = -1;
+
+// Bounded so a machine with many CPUs cannot turn the probe into a fork bomb.
+constexpr int kMaxProbeThreads = 16;
 
 // Every mount worth reporting. The log file itself goes to the first path in
 // kLogPaths that accepts a create/append.
@@ -51,6 +60,8 @@ constexpr const char* kLogPaths[] = {
     "/mnt/usb1/ps5-harness-bringup.log",
 };
 
+void* thread_probe(void*) { return nullptr; }
+
 void write_all(int fd, const char* text, std::size_t length) {
   while (length > 0) {
     const ssize_t written = ::write(fd, text, length);
@@ -66,7 +77,7 @@ void write_all(int fd, const char* text, std::size_t length) {
 }
 
 void log_line(const char* text) {
-  char buffer[512];
+  char buffer[1024];
   const int length = std::snprintf(buffer, sizeof buffer, "%s\n", text);
   if (length <= 0) {
     return;
@@ -212,27 +223,56 @@ int main(int argc, char** argv) {
 
   install_crash_handlers();
 
-  bool saw_mount = false;
+  // Everything an agent would inherit: the CPUs this process may run on, the
+  // memory it can see, the loader's limits, every mounted filesystem, and the
+  // four writable candidates the harness cares about.
+  std::vector<std::string> candidates;
   for (const char* mount : kMounts) {
-    struct statvfs vfs {};
-    if (statvfs(mount, &vfs) != 0) {
-      std::snprintf(line, sizeof line, "%s unavailable errno=%d", mount, errno);
-      log_line(line);
-      continue;
+    candidates.emplace_back(mount);
+  }
+  const ps5h::ResourceProfile resources = ps5h::probe_resources(candidates);
+  for (const std::string& description : ps5h::describe_resources(resources)) {
+    log_line(("ps5-harness bringup " + description).c_str());
+  }
+
+  // A thread per online CPU, bounded. Creating them proves the payload can use
+  // more than the thread it started on; joining them leaves nothing running.
+  int requested_threads = resources.cpu_online > 0 ? resources.cpu_online : 1;
+  if (requested_threads > kMaxProbeThreads) {
+    requested_threads = kMaxProbeThreads;
+  }
+  pthread_t workers[kMaxProbeThreads];
+  int created_threads = 0;
+  for (int i = 0; i < requested_threads; ++i) {
+    if (pthread_create(&workers[created_threads], nullptr, thread_probe, nullptr) != 0) {
+      break;
     }
-    saw_mount = true;
-    const unsigned long long free_mib =
-        static_cast<unsigned long long>(vfs.f_bavail) * vfs.f_frsize / (1024ULL * 1024ULL);
-    const unsigned long long total_mib =
-        static_cast<unsigned long long>(vfs.f_blocks) * vfs.f_frsize / (1024ULL * 1024ULL);
-    std::snprintf(line, sizeof line, "%s free=%llu MiB total=%llu MiB block=%lu",
-                  mount, free_mib, total_mib,
-                  static_cast<unsigned long>(vfs.f_frsize));
-    log_line(line);
+    ++created_threads;
   }
-  if (!saw_mount) {
-    log_line("ps5-harness bringup: none of the candidate mounts could be stat'ed");
+  for (int i = 0; i < created_threads; ++i) {
+    pthread_join(workers[i], nullptr);
   }
+  std::snprintf(line, sizeof line,
+                "ps5-harness bringup threads created=%d requested=%d",
+                created_threads, requested_threads);
+  log_line(line);
+
+  // One bounded heap probe: a process that can only allocate its own image is
+  // not a place an agent can live. Touching every page defeats overcommit.
+  constexpr std::size_t kAllocProbeBytes = 32u * 1024u * 1024u;
+  void* allocation = std::malloc(kAllocProbeBytes);
+  bool allocation_ok = false;
+  if (allocation != nullptr) {
+    volatile unsigned char* bytes = static_cast<volatile unsigned char*>(allocation);
+    for (std::size_t offset = 0; offset < kAllocProbeBytes; offset += 4096) {
+      bytes[offset] = 1;
+    }
+    allocation_ok = bytes[kAllocProbeBytes - 1] == 1;
+    std::free(allocation);
+  }
+  std::snprintf(line, sizeof line, "ps5-harness bringup alloc request=%zu ok=%d",
+                kAllocProbeBytes, allocation_ok ? 1 : 0);
+  log_line(line);
 
   log_line("ps5-harness bringup: done");
   if (g_log_fd >= 0) {
