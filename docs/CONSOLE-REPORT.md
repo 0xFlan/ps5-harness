@@ -495,7 +495,8 @@ The console was started with `--serve 8789 --context-chars 4096` and a fresh
 session. A local OpenAI-compatible stub was exposed to the console over an HTTPS
 `trycloudflare.com` tunnel. The stub chose the tool calls and generated the
 summaries; it did **not** execute any tool. The harness performed every call on
-the console.
+the console. The temporary stub and tunnel were stopped after the run; the
+listener itself remains up.
 
 Turn 1 returned **200**, used **4 steps**, and recorded:
 
