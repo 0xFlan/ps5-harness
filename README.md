@@ -405,7 +405,8 @@ deployment uses:
 | SHA-256 fingerprint | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
 
 The certificate is self-signed (and valid as a local root), so treat it as a
-local CA and trust it on the client. On macOS, import `/data/ps5h-cert.pem` into
+local CA and trust it on the client. Download `/data/ps5h-cert.pem` through the
+console's web file manager, save it as `ps5h-cert.pem`, then import it into
 Keychain Access and set **Always Trust**, or run:
 
 ```bash
@@ -847,14 +848,16 @@ Not verified or not built:
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.
 - **Browser input has no hardware controller or real dictation test.** A
-  headless browser loaded the current console page, and a host browser exercised
-  the physical keyboard, mouse/OSK, synthetic DualSense, touchpad pointer and
-  mocked speech paths. No controller was physically paired to the test browser,
-  no real microphone recognition ran, and console-paired peripherals are not
-  forwarded. Session-file persistence on the console is verified (12 messages
-  after restart); no provider key was staged for a browser chat turn. There is
-  still no native on-console window; `icon0.png` and the title metadata are the
-  shell-facing surface.
+  Chromium browser loaded the current console HTTPS page, and the same test
+  exercised the legacy HTTP fallback, the physical keyboard, mouse/OSK,
+  synthetic DualSense, touchpad pointer and mocked speech paths. The HTTPS test
+  profile bypassed the self-signed warning; the certificate was not installed in
+  a normal browser profile, so the documented trust step is not itself tested.
+  No controller was physically paired to the test browser, no real microphone
+  recognition ran, and console-paired peripherals are not forwarded. Session-file
+  persistence on the console is verified (12 messages after restart); no provider
+  key was staged for a browser chat turn. There is still no native on-console
+  window; `icon0.png` and the title metadata are the shell-facing surface.
 - **No elevation helper**, so writes reach only what the process can already
   open.
 
