@@ -154,8 +154,8 @@ are read at startup, so editing one on the PS5 takes effect on the next run with
 no rebuild.
 
 Default profile directory: `/data/homebrew` on the console, `agents` on the
-host. `--agents <dir>` overrides it. The file name is the agent name:
-`<dir>/<name>.json`.
+host. `agents_dir` in the config sets another default, and `--agents <dir>`
+overrides both. The file name is the agent name: `<dir>/<name>.json`.
 
 ```json
 {
@@ -292,7 +292,8 @@ Verified on the host:
   physical memory, mount enumeration and report formatting; `harness
   --resources` prints this Mac's profile
 
-Verified on the console (2026-11-18, build `0.1.0-fd5d0ae`):
+Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
+`0.1.0-4d7499f`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -304,6 +305,11 @@ Verified on the console (2026-11-18, build `0.1.0-fd5d0ae`):
 - **`dlopen`** — the example plugin built with the SDK header loaded from
   `/data`, registered `hello_echo` and returned a result.
 - **Writes** — `/data`, `/data/homebrew` and `/user` all wrote and read back.
+- **Local agents** — on `0.1.0-4d7499f`, `--list-agents` read the archivist and
+  maintainer profiles staged in `/data/homebrew`; `--agent-info` resolved the
+  inline archivist prompt and the maintainer's `system_prompt_file`; overwriting
+  `archivist.json` on the console changed the next `--list-agents` output to v2
+  with no rebuild.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
 - **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a
@@ -313,8 +319,9 @@ Verified on the console (2026-11-18, build `0.1.0-fd5d0ae`):
 - **Free-space cap** — a 10 MB request on the 2 MiB `/mnt` tmpfs stopped after
   1.71 MB with `download exceeds the configured byte limit`.
 
-`docs/CONSOLE-REPORT.md` has the transcript and both defects the run exposed
-(the ET_EXEC spawn failure and a 64 KiB stack buffer in the digest path).
+`docs/CONSOLE-REPORT.md` has the transcript, both defects the run exposed (the
+ET_EXEC spawn failure and a 64 KiB stack buffer in the digest path), and the
+local-agent run.
 
 Not verified or not built:
 

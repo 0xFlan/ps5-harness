@@ -199,7 +199,10 @@ editing it on the console needs no rebuild. Profiles cannot change roots, URL
 policy, secrets, or endpoint/plugin directories — those remain in the main
 config. `--list-agents` and `--agent-info` work without a provider key, and the
 host e2e suite asserts that a profile prompt and model reach the provider
-request.
+request. Console-verified on `0.1.0-4d7499f`: `--list-agents` read profiles from
+`/data/homebrew`, `--agent-info` resolved both an inline prompt and a
+`system_prompt_file`, and editing a profile changed the next run without a
+rebuild.
 
 ## P6 — User experience
 

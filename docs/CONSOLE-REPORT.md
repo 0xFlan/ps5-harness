@@ -11,20 +11,23 @@ here is still unverified.
 | Console | PS5 at `192.168.4.100` (LAN) |
 | Firmware | **not recorded** — no shell was available to query it |
 | Exploit / loader | `elfldr` listening on 9021; web file manager on 8888. Exact versions not reported by either UI. |
-| Date | 2026-11-18, ≈09:18–10:00 local |
+| Date | 2026-11-18, ≈09:18–10:10 local |
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents) |
 
-Artifacts measured on disk:
+Current artifacts on disk (local-agent build):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,189,456 | `c195ab1c643eef5e393a5e1db8006be043f169aed383bf5378f824d97e41e94c` |
-| `harness.elf` | 9,087,960 | `be7121ce86a805a83dc2595054c6bb980eaec47b4a26c123226472fc6f67fb35` |
+| `eboot.bin` | 7,219,024 | `662bc5f95f3d9e67ab25e87a0d34fc60cdc228574794ef69012f7e62939e8491` |
+| `harness.elf` | 9,125,816 | `1a50569c8d30f32ee20837c417a3d9d56ffd5fc904057a7ade371a185f3d2833` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
+
+The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
+local-agent checks use `0.1.0-4d7499f`.
 
 ## How it was launched
 
@@ -164,6 +167,35 @@ returned `{"echo":{"value":"console"}}`.
 - **Peak memory** — not measured. The transfer streams through curl's write
   callback to a `FILE*` and the digest uses an 8 KiB buffer; no buffer grows
   with file size.
+
+## Local agents — build 0.1.0-4d7499f
+
+The new `/data/harness.elf` was uploaded and two profiles were staged in
+`/data/homebrew`, the console default, so no `--agents` flag was needed:
+
+- `archivist.json` — inline `system_prompt`.
+- `maintainer.json` + `maintainer.md` — `system_prompt_file`.
+
+`--list-agents` printed both:
+
+```
+agents_dir=/data/homebrew
+archivist                Local archivist: inspect files and summarise what is on the console.
+maintainer               Local maintainer: keep a short maintenance log for the console.
+```
+
+`--agent-info archivist` resolved the inline prompt (249 bytes), model
+`gpt-4o-mini`, temperature 0.2, `max_tokens` 1024 and `max_steps` 8. Then
+`archivist.json` was overwritten on the console with a v2 profile; the next
+`--list-agents` on the same binary, with no rebuild, printed
+`Local archivist v2: edited on the console.` and `--agent-info` showed the v2
+prompt (212 bytes). `maintainer --agent-info` loaded `maintainer.md` from the
+profiles directory (345 bytes), proving the prompt-file path.
+
+A `--call fs_list` run confirmed the on-console log records
+`build=0.1.0-4d7499f`. No provider key was staged, so no model turn was run;
+the host e2e test asserts that a loaded profile's prompt, model, temperature
+and token cap reach the provider request.
 
 ## P5 — extension contract
 

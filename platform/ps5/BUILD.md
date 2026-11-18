@@ -14,12 +14,12 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,189,456 | `c195ab1c643eef5e393a5e1db8006be043f169aed383bf5378f824d97e41e94c` |
-| `harness.elf` | 9,087,960 | `be7121ce86a805a83dc2595054c6bb980eaec47b4a26c123226472fc6f67fb35` |
+| `eboot.bin` | 7,219,024 | `662bc5f95f3d9e67ab25e87a0d34fc60cdc228574794ef69012f7e62939e8491` |
+| `harness.elf` | 9,125,816 | `1a50569c8d30f32ee20837c417a3d9d56ffd5fc904057a7ade371a185f3d2833` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-fd5d0ae`. The build id embeds `VERSION` and the
+Measured from build id `0.1.0-4d7499f`. The build id embeds `VERSION` and the
 commit, so any commit or source change alters the two binaries; quote the build
 id, not only a hash, in a console report.
 
@@ -238,9 +238,9 @@ is the console check that works before an API key is staged. To run a turn, pass
 ### Observed on hardware
 
 The 2026-11-18 runs used the web file manager to stage files and read
-`/data/ps5-harness-agent.log`. All checks below, including the 1 GiB transfer,
-ran on `0.1.0-fd5d0ae`. `docs/CONSOLE-REPORT.md` has the full transcript; the
-short form is:
+`/data/ps5-harness-agent.log`. The core checks below, including the 1 GiB
+transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`.
+`docs/CONSOLE-REPORT.md` has the full transcript; the short form is:
 
 | Check | Result |
 |---|---|
@@ -254,6 +254,7 @@ short form is:
 | 10 MiB resume | Range served, `206`, 10,485,760 bytes, digest matched |
 | 1 GB transfer | `206` resume, 1,073,741,824 bytes, agent sha256 matched, renamed |
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
+| Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
 | Title install | not tested |
 
 ### Install as a title (untested sequence)
