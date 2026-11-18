@@ -218,9 +218,9 @@ the environment.
 ### Observed on hardware
 
 The 2026-11-18 runs used the web file manager to stage files and read
-`/data/ps5-harness-agent.log`. The 1 GiB transfer ran on `0.1.0-2e6d21c`; the
-final capability checks ran on `0.1.0-fd5d0ae`. `docs/CONSOLE-REPORT.md` has
-the full transcript; the short form is:
+`/data/ps5-harness-agent.log`. All checks below, including the 1 GiB transfer,
+ran on `0.1.0-fd5d0ae`. `docs/CONSOLE-REPORT.md` has the full transcript; the
+short form is:
 
 | Check | Result |
 |---|---|
@@ -232,7 +232,7 @@ the full transcript; the short form is:
 | `dlopen` | `hello.so` loaded, `hello_echo` registered and ran |
 | Writes | `/data`, `/data/homebrew`, `/user` all wrote and read back |
 | 10 MiB resume | Range served, `206`, 10,485,760 bytes, digest matched |
-| 1 GB transfer | 1 GiB reached 1,073,741,824 bytes; sha256 matched OVH's source (`2e6d21c`) |
+| 1 GB transfer | `206` resume, 1,073,741,824 bytes, agent sha256 matched, renamed |
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
 | Title install | not tested |
 

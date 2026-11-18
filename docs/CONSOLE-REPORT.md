@@ -54,7 +54,7 @@ download and plugin code the agent loop invokes.
    digest transferred every byte and then died before printing or renaming,
    even for a 577-byte body. Commit `fd5d0ae` uses an 8 KiB buffer. After the
    fix the same 10 MiB resume returned `status: 206`, the correct digest, and
-   renamed the file.
+   renamed the file; the 1 GiB transfer below then finalized on the same build.
 
 ## P2 — boot and resources
 
@@ -133,29 +133,37 @@ returned `{"echo":{"value":"console"}}`.
   write callback to a `FILE*` and hashes in 8 KiB chunks, so no buffer grows
   with file size, but no RSS figure was captured on the console.
 
-### 1 GB transfer
+### 1 GB transfer — post-fix
 
-- **Source** — `https://proof.ovh.net/files/1Gb.dat`, 1 GiB of zero bytes with
-  Range support (Cloudflare's speed endpoint refuses Range and its 1 GiB size,
-  so it was not usable for this test).
-- **Run** — a 64 MiB prefix was seeded, then the agent resumed with a Range
-  request and transferred the remaining 1008 MiB continuously at ≈0.75 MB/s.
-  The file reached exactly **1,073,741,824 bytes**.
-- **Finalize** — the build in use for this transfer (`0.1.0-2e6d21c`) then hit
-  the 64 KiB stack frame in `sha256_file_hex` and died before printing or
-  renaming. The complete `.part` was left behind.
-- **Integrity** — the completed file was fetched off the console over the LAN
-  and hashed on the Mac: sha256
-  `49bc20df15e412a64472421e13fe86ff1c5165e18b2afccf160d4dc19fe68a14`, the digest
-  of 1 GiB of zero bytes.
-- **After the fix** — a 10 MiB file seeded with a 1 MiB `.part` returned `206`,
-  matched its expected sha256 and renamed into place. The digest path now
-  streams in 8 KiB chunks and does not allocate by file size.
+- **Build** — `0.1.0-fd5d0ae`, the fixed digest path.
+- **Source** — `https://proof.ovh.net/files/1Gb.dat`, 1,073,741,824 zero bytes,
+  Range-capable. It is the same all-zero source used for the earlier
+  interrupted attempt.
+- **Setup** — 1,000 MiB (1,048,576,000 bytes) of the same zero bytes was staged
+  as `/data/dl-1gb-final.bin.part`, so the agent had a real partial to resume
+  rather than an already-complete file.
+- **Agent result** — the shipped `download` tool printed this over elfldr:
+
+  ```json
+  {
+    "bytes": 1073741824,
+    "ok": true,
+    "sha256": "49bc20df15e412a64472421e13fe86ff1c5165e18b2afccf160d4dc19fe68a14",
+    "status": 206
+  }
+  ```
+
+- **Checks** — `status` is `206` (Range resume); `bytes` is exactly
+  **1,073,741,824**; the agent hashed the whole file itself and the digest
+  matches 1 GiB of zero bytes; it renamed the `.part` to
+  `/data/dl-1gb-final.bin`; the file manager lists that file at 1,073,741,824
+  bytes and no `.part` remains; the payload completed in 42 s and exited
+  cleanly with no crash line. The on-console startup log records
+  `build=0.1.0-fd5d0ae`; the result above is the agent's stdout from the same
+  process.
 - **Peak memory** — not measured. The transfer streams through curl's write
-  callback to a `FILE*`; no buffer grows with the file.
-- The completed 1 GiB file remains at `/data/dl-1gb.bin.part`; a rename through
-  the file-manager API returned a `system_error`, so the path is recorded here
-  rather than presented as a clean `/data/dl-1gb.bin`.
+  callback to a `FILE*` and the digest uses an 8 KiB buffer; no buffer grows
+  with file size.
 
 ## P5 — extension contract
 

@@ -6,8 +6,8 @@ the relevant rows below are ticked on the console.
 
 The 2026-11-18 attempt (build `0.1.0-fd5d0ae`, elfldr payload path) is recorded
 in `docs/CONSOLE-REPORT.md`: P2 boot/resources, P3 TLS/`dlopen`/writes and the
-P4 resume/free-space checks are filled there; the title-install and USB rows
-remain open.
+P4 resume/1 GB/free-space checks are filled there; the title-install and USB
+rows remain open.
 
 ## Record first
 

@@ -246,11 +246,10 @@ Verified on the console (2026-11-18, build `0.1.0-fd5d0ae`):
 - **Writes** — `/data`, `/data/homebrew` and `/user` all wrote and read back.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
-- **1 GB transfer** — on the preceding build `0.1.0-2e6d21c`, a 1 GiB OVH
-  transfer resumed from a 64 MiB prefix and reached exactly 1,073,741,824
-  bytes; the completed file's sha256 matches the source digest. The finalize
-  step on that run hit the stack-buffer bug, now fixed; on `fd5d0ae` a 10 MiB
-  resume returned `206`, matched its digest and renamed into place.
+- **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a
+  1,000 MiB prefix resumed with Range (`206`), reached exactly 1,073,741,824
+  bytes, matched its expected sha256 in the agent, and renamed into place; no
+  `.part` remained.
 - **Free-space cap** — a 10 MB request on the 2 MiB `/mnt` tmpfs stopped after
   1.71 MB with `download exceeds the configured byte limit`.
 
@@ -268,8 +267,8 @@ Not verified or not built:
 - **USB and app-sandbox writes are untested.** No USB device was present and
   there was no title sandbox.
 - **Peak memory during a 1 GB transfer is unmeasured.** The path streams in
-  fixed chunks and hashed the 1 GiB file externally, but no RSS figure was
-  captured on the console.
+  fixed chunks and the agent hashed the full 1 GiB file in 8 KiB chunks, but no
+  RSS figure was captured on the console.
 - **No model turn has run on hardware.** No provider key was available to the
   loader; the capability checks use `--call` over the same code paths.
 - **CI has not executed.** The workflow is committed; no remote run yet.

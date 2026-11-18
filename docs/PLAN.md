@@ -162,17 +162,17 @@ Streaming downloads and per-tool deadlines still hold.
 
 On hardware, a 10 MiB transfer seeded with a 1 MiB `.part` resumed with a Range
 request (`206`), finished at exactly 10,485,760 bytes and matched its sha256. A
-1 GiB OVH transfer resumed from 64 MiB, reached 1,073,741,824 bytes, and the
-completed file's sha256 matched the source; that run's finalize hit the
-64 KiB stack buffer that `fd5d0ae` fixed, after which the 10 MiB resume finalized
-correctly. A 10 MB request to the 2 MiB `/mnt` tmpfs stopped at 1.71 MB with the
+1 GiB OVH transfer seeded with 1,000 MiB resumed with `206`, reached exactly
+1,073,741,824 bytes, matched its expected sha256 in the agent and renamed into
+place; the earlier finalize crash is the 64 KiB stack buffer that `fd5d0ae`
+fixed. A 10 MB request to the 2 MiB `/mnt` tmpfs stopped at 1.71 MB with the
 configured-limit error. Peak RSS is still unmeasured. The remaining P4 work is
 install/launch, which needs the title path.
 
 Completion: a 1 GB transfer completes and verifies on hardware, and an
-interrupted transfer resumes rather than restarting. The 1 GiB run was seeded at
-64 MiB and verified externally; the 10 MiB run resumed at 1 MiB and finalized
-with `206`, a matching digest and a rename.
+interrupted transfer resumes rather than restarting. The 1 GiB run resumed at
+1,000 MiB and finalized with `206`, a matching digest and a rename; the 10 MiB
+run resumed at 1 MiB on the same path.
 
 ## P5 — Extension ecosystem
 
