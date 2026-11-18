@@ -600,7 +600,8 @@ Verified on the host:
 
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
-recon/plan/swarm/mission `0.1.0-e0b6af4`):
+recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
+`0.1.0-e6b6205`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -642,8 +643,11 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`):
   built-ins and both disk packs listed, and
   `reverse-engineer-anything` loaded its text. A nine-lane `swarm --call` was
   refused before spawning; a one-step mission with a missing profile parsed,
-  ran, and returned `ok:false` at step `one`. No provider key was staged, so no
-  model-driven plan, swarm or mission turn ran on hardware.
+  ran, and returned `ok:false` at step `one`. On the `0.1.0-e6b6205` rebuild, a
+  hostile PE header (`e_lfanew = 0xffffffff`) returned `signature:false`,
+  `fs_tree` clamped `depth:1e999` to 8, and a mission with `max_steps:1e999`
+  was rejected before execution. No provider key was staged, so no model-driven
+  plan, swarm or mission turn ran on hardware.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
 - **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a

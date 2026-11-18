@@ -15,21 +15,22 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild) |
 
-Current artifacts on disk (recon/plan/swarm/mission build `0.1.0-e0b6af4`):
+Current artifacts on disk (memory-safety build `0.1.0-e6b6205`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,549,840 | `d5770ffceac8cb825326a6854a0ba4fd7c794a30e0c0398489795ffca2997296` |
-| `harness.elf` | 9,499,552 | `8377fb70f2dd45e542eba1eb72c11282d542c04be3f9d2c3f323480b9ac9fbf5` |
+| `eboot.bin` | 7,551,376 | `48a809d928b04469d5b3c516abff476b30fbdfca1613f0babfad921cda32e7c0` |
+| `harness.elf` | 9,499,816 | `01e857e72e6a24a0ad0e1282fe6110f5fc229e1ffaffd7f6ae54bdb8b085a67a` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
 `0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`; the recon,
-plan, swarm and mission checks use `0.1.0-e0b6af4`.
+plan, swarm and mission checks use `0.1.0-e0b6af4`; the parser-hardening smoke
+uses `0.1.0-e6b6205`.
 
 ## How it was launched
 
@@ -333,6 +334,16 @@ write.
 No provider key was staged, so the model did not choose a skill or an edit on
 hardware. The host e2e suite drives both tools through the real CLI and asserts
 that a delegated child's tool schema still contains `skill` and `fs_edit`.
+
+## Memory-safety rebuild — `0.1.0-e6b6205`
+
+The parser hardening was rebuilt into a fresh payload and re-smoked on the
+console without a provider key. `--tools` listed the same 14 tools. A 64-byte
+PE file with `e_lfanew = 0xffffffff` returned `format: pe` and
+`signature: false` instead of throwing; `fs_tree` with `depth: 1e999` returned
+`depth: 8` and `truncated: true`; and a mission with `max_steps: 1e999` was
+rejected with `max_steps must be between 0 and 64` before any child started.
+The full fuzz and sanitizer results are in the host logs, not on the console.
 
 ## Local recon, plan, swarm and mission
 

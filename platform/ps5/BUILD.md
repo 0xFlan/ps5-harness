@@ -14,14 +14,22 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,549,840 | `d5770ffceac8cb825326a6854a0ba4fd7c794a30e0c0398489795ffca2997296` |
-| `harness.elf` | 9,499,552 | `8377fb70f2dd45e542eba1eb72c11282d542c04be3f9d2c3f323480b9ac9fbf5` |
+| `eboot.bin` | 7,551,376 | `48a809d928b04469d5b3c516abff476b30fbdfca1613f0babfad921cda32e7c0` |
+| `harness.elf` | 9,499,816 | `01e857e72e6a24a0ad0e1282fe6110f5fc229e1ffaffd7f6ae54bdb8b085a67a` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-e0b6af4` (recon, plan, swarms and missions). The build id
-embeds `VERSION` and the commit, so any commit or source change alters the two
-binaries; quote the build id, not only a hash, in a console report.
+Measured from build id `0.1.0-e6b6205` (memory-safety rebuild of recon and mission
+parsing). The build id embeds `VERSION` and the commit, so any commit or source
+change alters the two binaries; quote the build id, not only a hash, in a
+console report.
+
+The `e6b6205` payload was re-smoked on the console with no provider key: it
+listed 14 tools, parsed a hostile PE header (`e_lfanew = 0xffffffff`) as
+`format=pe, signature=false` without throwing, clamped `fs_tree` depth `1e999`
+to 8, and rejected a mission with `max_steps=1e999` before any child started.
+The detailed recon/plan/swarm/mission rows below were captured on
+`0.1.0-e0b6af4`; the parser fixes do not change their normal-input output.
 
 The package contains:
 
