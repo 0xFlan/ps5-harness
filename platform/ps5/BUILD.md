@@ -14,12 +14,13 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,551,376 | `d63d12df492f56890575ddd7a6f0ad27e6959bae6be6f3b30b4e530147405114` |
-| `harness.elf` | 9,499,816 | `604f125bafdd4caa00d24f0a5c2ad5c29d94c2abd4a194fface7ff5be356d91a` |
+| `eboot.bin` | 7,733,984 | `0959fcca0fcf23d1b0269807ad0ce334e3347f72cdad6dfc546d3f9cfc852ee3` |
+| `harness.elf` | 9,727,192 | `30dd3378a76ab26c923abfd343ecd0ce7f929c09a603634dfe4e8644d00534fe` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
-Measured from build id `0.1.0-01c6cbc` (PS5-style home-screen tile). The build id
+Measured from build id `0.1.0-f766e73` (LAN browser workspace and power-tool
+surface). The build id
 embeds `VERSION` and the commit, so any commit or source change alters the two
 binaries; quote the build id, not only a hash, in a console report.
 
@@ -27,7 +28,12 @@ The `e6b6205` payload was re-smoked on the console with no provider key: it
 listed 14 tools, parsed a hostile PE header (`e_lfanew = 0xffffffff`) as
 `format=pe, signature=false` without throwing, clamped `fs_tree` depth `1e999`
 to 8, and rejected a mission with `max_steps=1e999` before any child started.
-The detailed recon/plan/swarm/mission rows below were captured on
+A `0.1.0-c2c533f` build with the same additions was staged on the console
+without a provider key: `--serve 8789` served the UI page, `/api/state`
+returned 401 without the token, the authenticated state listed all 20 tools, and
+`--call sysctl --args '{"name":"hw.ncpu"}'` returned 16. The final
+`0.1.0-f766e73` cross-build was not re-staged. The detailed
+recon/plan/swarm/mission rows below were captured on
 `0.1.0-e0b6af4`; the parser fixes do not change their normal-input output.
 
 `01c6cbc` changes only the generated home-screen tile and its documentation, so
