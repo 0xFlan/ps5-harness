@@ -8,6 +8,7 @@
   },
   "endpoints_dir": "examples/endpoints",
   "plugins_dir": "",
+  "skills_dir": "examples/skills",
   "max_steps": 12,
   "delegation_max_depth": 2,
   "allowed_roots": ["/data/homebrew", "/mnt/usb0"],

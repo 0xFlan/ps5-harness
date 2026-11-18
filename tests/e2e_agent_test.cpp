@@ -558,6 +558,132 @@ void write_profile(const std::string& agents, const std::string& name,
   write_text(agents + "/" + name + ".json", body);
 }
 
+std::string read_text_file(const std::string& path) {
+  std::string out;
+  FILE* file = std::fopen(path.c_str(), "rb");
+  assert(file != nullptr);
+  char buffer[4096];
+  std::size_t read = 0;
+  while ((read = std::fread(buffer, 1, sizeof buffer, file)) > 0) {
+    out.append(buffer, read);
+  }
+  std::fclose(file);
+  return out;
+}
+
+// The built-in skill and fs_edit tools, through the real CLI: listing, loading,
+// bundled resources, containment and a targeted file edit. This is the same
+// registry every profile and delegated child receives.
+void test_skill_and_edit_tools() {
+  const std::string directory = make_temp_dir();
+  const std::string skills = directory + "/skills";
+  const std::string skill = skills + "/console-notes";
+  assert(::mkdir(skills.c_str(), 0700) == 0);
+  assert(::mkdir(skill.c_str(), 0700) == 0);
+  assert(::mkdir((skill + "/templates").c_str(), 0700) == 0);
+  write_text(skill + "/SKILL.md",
+             "---\n"
+             "name: console-notes\n"
+             "description: Notes for the console\n"
+             "---\n\n"
+             "# Console notes\n\n"
+             "Write a note.\n");
+  write_text(skill + "/templates/note.md", "NOTE TEMPLATE\n");
+  write_text(skill + "/credentials.txt", "SECRET\n");
+  const std::string outside = directory + "-outside.txt";
+  write_text(outside, "OUTSIDE\n");
+  write_text(directory + "/skill-escape.txt", "PARENT\n");
+  assert(::symlink(outside.c_str(), (skill + "/leak.txt").c_str()) == 0);
+
+  const std::string target = directory + "/notes.txt";
+  write_text(target, "alpha old omega\n");
+  const std::string config_path = write_delegation_config(directory, 4, 500, 0);
+  const std::string base = "./build/harness_e2e --config " +
+                           quote(config_path) + " --skills " + quote(skills);
+  auto call = [&](const std::string& tool, const Json& arguments) {
+    return run_command(base + " --call " + tool + " --args " +
+                       quote(arguments.dump()));
+  };
+
+  const CommandResult tools = run_command(base + " --tools");
+  assert(tools.exit_code == 0);
+  assert(tools.output.find("fs_write") != std::string::npos);
+  assert(tools.output.find("fs_edit") != std::string::npos);
+  assert(tools.output.find("skill") != std::string::npos);
+
+  const CommandResult listed = call("skill", Json::object());
+  assert(listed.exit_code == 0);
+  assert(listed.output.find("console-notes") != std::string::npos);
+  assert(listed.output.find("Notes for the console") != std::string::npos);
+
+  Json load_args = Json::object();
+  load_args["name"] = "console-notes";
+  const CommandResult loaded = call("skill", load_args);
+  assert(loaded.exit_code == 0);
+  assert(loaded.output.find("# Console notes") != std::string::npos);
+  assert(loaded.output.find("templates/note.md") != std::string::npos);
+
+  Json resource_args = Json::object();
+  resource_args["name"] = "console-notes";
+  resource_args["resource"] = "templates/note.md";
+  const CommandResult resource = call("skill", resource_args);
+  assert(resource.exit_code == 0);
+  assert(resource.output.find("NOTE TEMPLATE") != std::string::npos);
+
+  Json escape_args = Json::object();
+  escape_args["name"] = "console-notes";
+  escape_args["resource"] = "../../skill-escape.txt";
+  const CommandResult escaped = call("skill", escape_args);
+  assert(escaped.exit_code == 0);
+  assert(escaped.output.find("outside the skill directory") !=
+         std::string::npos);
+
+  Json link_args = Json::object();
+  link_args["name"] = "console-notes";
+  link_args["resource"] = "leak.txt";
+  const CommandResult linked = call("skill", link_args);
+  assert(linked.output.find("outside the skill directory") !=
+         std::string::npos);
+  assert(linked.output.find("OUTSIDE") == std::string::npos);
+
+  Json secret_args = Json::object();
+  secret_args["name"] = "console-notes";
+  secret_args["resource"] = "credentials.txt";
+  const CommandResult secret = call("skill", secret_args);
+  assert(secret.output.find("denied") != std::string::npos);
+
+  Json edit_args = Json::object();
+  edit_args["path"] = target;
+  edit_args["old"] = "old";
+  edit_args["new"] = "new";
+  const CommandResult edited = call("fs_edit", edit_args);
+  assert(edited.exit_code == 0);
+  assert(edited.output.find("replaced") != std::string::npos);
+  assert(read_text_file(target) == "alpha new omega\n");
+
+  write_text(target, "x x\n");
+  Json ambiguous_args = Json::object();
+  ambiguous_args["path"] = target;
+  ambiguous_args["old"] = "x";
+  ambiguous_args["new"] = "y";
+  const CommandResult ambiguous = call("fs_edit", ambiguous_args);
+  assert(ambiguous.output.find("appears 2 times") != std::string::npos);
+  assert(read_text_file(target) == "x x\n");
+
+  ambiguous_args["replace_all"] = true;
+  const CommandResult replaced = call("fs_edit", ambiguous_args);
+  assert(replaced.exit_code == 0);
+  assert(read_text_file(target) == "y y\n");
+
+  Json outside_args = Json::object();
+  outside_args["path"] = "/etc/hosts";
+  outside_args["old"] = "localhost";
+  outside_args["new"] = "x";
+  const CommandResult outside_edit = call("fs_edit", outside_args);
+  assert(outside_edit.output.find("outside the write roots") !=
+         std::string::npos);
+}
+
 // A real parent conversation calls delegate; the stub then serves the child
 // conversation and the parent sees the child's answer as a tool result.
 void test_delegation_round_trip() {
@@ -607,6 +733,9 @@ void test_delegation_round_trip() {
   assert(child.body.find("HELPER PROMPT FROM FILE") != std::string::npos);
   assert(child.body.find("summarise the local notes") != std::string::npos);
   assert(child.body.find("\"max_tokens\":200") != std::string::npos);
+  // The child copy of the registry still carries the file-edit and skill tools.
+  assert(child.body.find("\"fs_edit\"") != std::string::npos);
+  assert(child.body.find("\"skill\"") != std::string::npos);
   // Explicit flags beat the helper profile's model and one-step cap: the child
   // completed a tool call and a final turn instead of stopping at one step.
   assert(child.body.find("\"model\":\"forced-model\"") != std::string::npos);
@@ -964,6 +1093,8 @@ int main() {
   test_cli_round_trip();
   std::printf("local agent profile...\n");
   test_local_agent_profile();
+  std::printf("skill and edit tools...\n");
+  test_skill_and_edit_tools();
   std::printf("delegation round trip...\n");
   test_delegation_round_trip();
   std::printf("delegation depth limit...\n");

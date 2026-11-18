@@ -148,7 +148,8 @@ AgentProfileLoad load_agent_profile(const std::string& directory,
 
   for (const char* key : {"allowed_roots", "read_roots", "url_policy",
                           "secret_env", "endpoints_dir", "plugins_dir",
-                          "api_key_env", "delegation_max_depth"}) {
+                          "skills_dir", "api_key_env",
+                          "delegation_max_depth"}) {
     if (root_json.contains(key)) {
       result.error = std::string("profiles cannot set ") + key;
       return result;

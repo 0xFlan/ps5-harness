@@ -111,6 +111,12 @@ void test_rejects_escapes_and_security_keys() {
   const AgentProfileLoad roots = load_agent_profile(root, "roots");
   assert(!roots.ok);
   assert(roots.error.find("allowed_roots") != std::string::npos);
+
+  write_text(root + "/skills.json",
+             R"({"system_prompt": "x", "skills_dir": "/"})");
+  const AgentProfileLoad skills = load_agent_profile(root, "skills");
+  assert(!skills.ok);
+  assert(skills.error.find("skills_dir") != std::string::npos);
 }
 
 void test_rejects_bad_values() {
