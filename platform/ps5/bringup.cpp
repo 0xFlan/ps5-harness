@@ -23,6 +23,10 @@
 #define PS5H_BUILD_ID "unknown"
 #endif
 
+#ifndef PS5H_TITLE_ID
+#define PS5H_TITLE_ID "unknown"
+#endif
+
 namespace {
 
 int g_log_fd = -1;
@@ -120,6 +124,8 @@ void on_fatal_signal(int signal, siginfo_t* info, void* /*context*/) {
   char* const end = buffer + sizeof buffer;
   out = append_text(out, end, "ps5-harness bringup CRASH build=");
   out = append_text(out, end, PS5H_BUILD_ID);
+  out = append_text(out, end, " title=");
+  out = append_text(out, end, PS5H_TITLE_ID);
   out = append_text(out, end, " signal=");
   out = append_unsigned(out, end, static_cast<unsigned long long>(signal), 10);
   out = append_text(out, end, " (");
@@ -180,9 +186,9 @@ bool open_log() {
 
 int main(int argc, char** argv) {
   char line[256];
-  std::snprintf(line, sizeof line, "ps5-harness bringup build=%s pid=%ld uid=%ld",
-                PS5H_BUILD_ID, static_cast<long>(::getpid()),
-                static_cast<long>(::getuid()));
+  std::snprintf(line, sizeof line,
+                "ps5-harness bringup build=%s title=%s pid=%ld uid=%ld", PS5H_BUILD_ID,
+                PS5H_TITLE_ID, static_cast<long>(::getpid()), static_cast<long>(::getuid()));
   std::printf("%s\n", line);
 
   if (!open_log()) {

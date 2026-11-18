@@ -4,6 +4,14 @@ CC ?= cc
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Iinclude
 VERSION := $(shell cat VERSION)
 
+# P2 package check. The SFO and icon come from host-only Python generators;
+# eboot.bin and the ELF need the payload SDK. Require them whenever a console
+# build is on disk, otherwise validate the two generated assets so a host-only
+# checkout (CI) still tests clean.
+PS5_TITLE_ID     := $(shell sed -n 's/^TITLE_ID[[:space:]]*:=[[:space:]]*//p' platform/ps5/title.mk)
+PS5_PACKAGE      := .deps/ps5-build/$(PS5_TITLE_ID)
+PS5_PACKAGE_MODE := $(if $(wildcard $(PS5_PACKAGE)/eboot.bin),,--assets-only)
+
 ifeq ($(UNAME_S),Linux)
 PLATFORM_LIBS := -lcurl -ldl -pthread
 else
@@ -49,10 +57,15 @@ build/e2e_agent_test: tests/e2e_agent_test.cpp $(LIB_SRC) | build
 build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/hardening_test build/e2e_agent_test
+build/ps5_package_test: tests/ps5_package_test.cpp | build
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/hardening_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
 	./build/hardening_test
+	@$(MAKE) -C platform/ps5 host-assets
+	./build/ps5_package_test $(PS5_PACKAGE) $(PS5_PACKAGE_MODE)
 	./build/e2e_agent_test
 
 tools: build/harness

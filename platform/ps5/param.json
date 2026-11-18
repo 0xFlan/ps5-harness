@@ -1,7 +1,7 @@
 {
   "applicationCategoryType": 0,
-  "conceptId": "99177",
-  "contentId": "UP9000-PPSA99177_00-PS5HARNESS000001",
+  "conceptId": "00001",
+  "contentId": "UP9000-PHAR00001_00-PS5HARNESS000001",
   "contentVersion": "01.000.000",
   "contentBadgeType": 1,
   "localizedParameters": {
@@ -11,5 +11,5 @@
     }
   },
   "masterVersion": "01.00",
-  "titleId": "PPSA99177"
+  "titleId": "PHAR00001"
 }
