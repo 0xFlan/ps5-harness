@@ -150,8 +150,11 @@ plugin directories you would run as a program.
 
 Partly done. `make -C platform/ps5` cross-compiles the P2 bring-up payload
 (`platform/ps5/bringup.cpp`) to an x86-64 FreeBSD ELF and packs a fake-SELF
-`eboot.bin` with the SDK's `make_fself.py`. `platform/ps5/BUILD.md` records the
-exact SDK and LLVM versions, the command, and the console steps. Nothing has
+`eboot.bin` with the SDK's `make_fself.py`. The payload writes a log it can
+still append to if it crashes (build id, pid/uid/cwd, free space per mount, and
+one `CRASH … signal=N` line on a fault), so a failed first boot leaves evidence
+rather than a silent exit. `platform/ps5/BUILD.md` records the exact SDK and
+LLVM versions, artifact hashes, the command, and the console steps. Nothing has
 booted on a console.
 
 Remaining:

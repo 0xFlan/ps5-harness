@@ -85,8 +85,13 @@ its build id and the console's free space. Nothing else is required of it yet.
 State: the toolchain decision is recorded — macOS host, SDK zip sha256
 `5fac6409…` (v0.45), LLVM 23.1.4 (details in `platform/ps5/BUILD.md`).
 `make -C platform/ps5` builds `platform/ps5/bringup.cpp` to an x86-64 FreeBSD
-ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The
-remaining criterion — boot and log free space on the console — needs hardware.
+ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py` (build
+`0.1.0-77c0bfe`). The payload now logs through a pre-opened fd with an app-folder
+fallback, records pid/uid/cwd/argv[0], and installs an async-signal-safe fatal
+handler so a crash writes its signal and address. Host checks: the same source
+built natively writes the log, and a forced `SIGSEGV` produces the `CRASH` line
+and exit 139. The remaining criterion — boot and log free space on the console —
+needs hardware; no part of this has run on a PS5.
 
 ## P3 — Console capabilities
 

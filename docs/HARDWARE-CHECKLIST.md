@@ -43,6 +43,8 @@ Without them a failure cannot be reproduced.
 - [ ] Launches without a system error dialog.
 - [ ] Writes a log line containing build id and free space.
 - [ ] Exits cleanly (no hang on quit).
+- [ ] If it did not exit cleanly: the log ends with a `CRASH build=… signal=N
+      (NAME) addr=0x…` line; record it verbatim, it names the fault.
 
 Log path:
 

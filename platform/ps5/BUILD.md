@@ -16,10 +16,17 @@ On 2026-11-17, macOS 26.6.2 (arm64):
   The SDK's own wrappers select it; the SDK's README pins 18 but its
   `prospero-llvm-config` accepts 15–23.
 - `make -C platform/ps5` produced `bringup.elf` (ELF 64-bit LSB executable,
-  x86-64, FreeBSD) and `PPSA99177/eboot.bin` (fSELF, magic `4f153d1d`, 55,616
-  bytes at this commit).
-- The build id inside the artifact is `0.1.0-<git sha>`, embedded from `VERSION`
-  and the commit, so a console log identifies the exact build.
+  x86-64, FreeBSD) and `PPSA99177/eboot.bin` (fSELF, magic `4f153d1d`).
+- Build at commit `77c0bfe`: build id `0.1.0-77c0bfe`, ELF sha256
+  `74a4ae4800cadf7ad3acd8af6ef20ad7a18e6dbab413ae8461e3163bf12a19c4`,
+  `eboot.bin` 58,880 bytes sha256
+  `e37d71a5f982b5f1323c548aee4b6a8cc1a66689913d28d74b99a891c634bac0`.
+  The build id embeds the commit, so any commit or source change alters the
+  artifact hash; quote the build id, not just the hash, in a console report.
+- Host checks on the same source: a native build writes the log and, with a
+  `SIGSEGV` forced after handler installation, leaves
+  `CRASH build=… signal=11 (SIGSEGV) addr=…` and exits 139. Neither check runs
+  the FreeBSD binary; both only prove the logic runs on a host.
 
 Reproduce:
 
@@ -71,8 +78,14 @@ those a failure cannot be reproduced.
 - [ ] Log line contains the build id and the free space of at least one mount.
 - [ ] Exits cleanly.
 
-Log paths the payload tries, in order: `/data/ps5-harness-bringup.log`,
-`/user/homebrew/ps5-harness-bringup.log`, `/mnt/usb0/…`, `/mnt/usb1/…`.
+The payload logs through a pre-opened fd, so a crash still appends. It records
+build id, pid, uid, cwd, argv[0], then free and total MiB for each candidate
+mount plus the `errno` of each one that cannot be stat'ed. Log paths tried, in
+order: `/data/ps5-harness-bringup.log`,
+`/user/homebrew/ps5-harness-bringup.log`, `./ps5-harness-bringup.log` (the app's
+folder), `/mnt/usb0/…`, `/mnt/usb1/…`. A fatal signal writes one
+`CRASH build=… signal=N (NAME) addr=0x…` line and exits `128+N`, so a failed
+boot names its fault instead of going silent.
 
 Then P3: TLS, `dlopen`, elevated write — each recorded separately in
 `docs/HARDWARE-CHECKLIST.md`.
