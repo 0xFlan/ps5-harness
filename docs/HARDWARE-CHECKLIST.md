@@ -5,7 +5,7 @@ A phase is not complete because a build succeeded elsewhere; it is complete when
 the relevant rows below are ticked on the console.
 
 The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4, `0.1.0-4d7499f`
-for local agents and `0.1.0-d9c09b8` for delegation, elfldr payload path) is
+for local agents and `0.1.0-c0f76b5` for delegation, elfldr payload path) is
 recorded in `docs/CONSOLE-REPORT.md`: P2 boot/resources, P3
 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks, the local-agent
 list/info checks and the delegation tool/failure checks are filled there; the

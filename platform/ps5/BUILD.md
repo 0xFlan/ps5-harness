@@ -14,12 +14,12 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,280,368 | `14fa3c1bd5c21c71ae22888fd1563e0bd07271074be86a21c204f381e935b1c8` |
-| `harness.elf` | 9,186,008 | `0c9c0480232081c973178454bdadc5f220d9738314065ec26c93510f550aba26` |
+| `eboot.bin` | 7,281,904 | `d8220e3d29e744735dcd63ad00b9734698b6e4fd3286a5b10dcea2b0c7c9d9b7` |
+| `harness.elf` | 9,188,192 | `ab6a6b072cb048acbe5aae2f2471d586419f001bbe6426ea4785a7781f5c446b` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-d9c09b8` (the delegation build). The build id
+Measured from build id `0.1.0-c0f76b5` (the delegation build). The build id
 embeds `VERSION` and the commit, so any commit or source change alters the two
 binaries; quote the build id, not only a hash, in a console report.
 
@@ -249,7 +249,7 @@ is the console check that works before an API key is staged. To run a turn, pass
 The 2026-11-18 runs used the web file manager to stage files and read
 `/data/ps5-harness-agent.log`. The core checks below, including the 1 GiB
 transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`;
-the delegation build is `0.1.0-d9c09b8`. `docs/CONSOLE-REPORT.md` has the full
+the delegation build is `0.1.0-c0f76b5`. `docs/CONSOLE-REPORT.md` has the full
 transcript; the short form is:
 
 | Check | Result |
@@ -265,7 +265,7 @@ transcript; the short form is:
 | 1 GB transfer | `206` resume, 1,073,741,824 bytes, agent sha256 matched, renamed |
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
 | Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
-| Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `d9c09b8` |
+| Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `c0f76b5` |
 | Title install | not tested |
 
 ### Install as a title (untested sequence)

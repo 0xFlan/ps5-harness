@@ -214,7 +214,7 @@ boundary key is rejected before the child runs. `delegation_max_depth` (default
 2, `--max-depth`) bounds nesting, the child reserves steps/tokens from the
 parent's pool, and refusals are logged. Host e2e covers a full parent/child
 provider round trip, inherited-root refusal, depth and budget limits, flag
-precedence and unknown/self profiles. Console-verified on `0.1.0-d9c09b8`: the
+precedence and unknown/self profiles. Console-verified on `0.1.0-c0f76b5`: the
 build id, `delegate` in `--tools`, both profile commands, and a missing-profile
 refusal; no provider key was staged for an on-console child turn.
 

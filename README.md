@@ -337,7 +337,7 @@ Verified on the host:
   --resources` prints this Mac's profile
 
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
-`0.1.0-4d7499f`, delegation `0.1.0-d9c09b8`):
+`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -354,7 +354,7 @@ Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
   inline archivist prompt and the maintainer's `system_prompt_file`; overwriting
   `archivist.json` on the console changed the next `--list-agents` output to v2
   with no rebuild.
-- **Delegation** — on `0.1.0-d9c09b8`, the log recorded the new build,
+- **Delegation** — on `0.1.0-c0f76b5`, the log recorded the new build,
   `--tools` listed `delegate`, both profile commands still resolved (including
   `delegation_max_depth=2`), and `--call delegate` with a missing profile failed
   closed and logged `delegate ! ... cannot load agent`. No provider key was

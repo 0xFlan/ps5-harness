@@ -15,20 +15,20 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-d9c09b8` (delegation) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation) |
 
 Current artifacts on disk (delegation build):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,280,368 | `14fa3c1bd5c21c71ae22888fd1563e0bd07271074be86a21c204f381e935b1c8` |
-| `harness.elf` | 9,186,008 | `0c9c0480232081c973178454bdadc5f220d9738314065ec26c93510f550aba26` |
+| `eboot.bin` | 7,281,904 | `d8220e3d29e744735dcd63ad00b9734698b6e4fd3286a5b10dcea2b0c7c9d9b7` |
+| `harness.elf` | 9,188,192 | `ab6a6b072cb048acbe5aae2f2471d586419f001bbe6426ea4785a7781f5c446b` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
-`0.1.0-d9c09b8`.
+`0.1.0-c0f76b5`.
 
 ## How it was launched
 
@@ -198,13 +198,13 @@ A `--call fs_list` run confirmed the on-console log records
 the host e2e test asserts that a loaded profile's prompt, model, temperature
 and token cap reach the provider request.
 
-## Delegation — build 0.1.0-d9c09b8
+## Delegation — build 0.1.0-c0f76b5
 
-The delegation build was cross-compiled from commit `d9c09b8` and uploaded to
+The delegation build was cross-compiled from commit `c0f76b5` and uploaded to
 `/data/harness.elf`. The on-console log records:
 
 ```
-[harness] build=0.1.0-d9c09b8 title=PHAR00001
+[harness] build=0.1.0-c0f76b5 title=PHAR00001
 ```
 
 `--tools` listed seven tools, including the model-callable delegation entry:
