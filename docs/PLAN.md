@@ -9,7 +9,7 @@ measurement remain open.
 | Phase | State |
 |---|---|
 | P0 Repo hygiene | Done — license, `.gitignore`, `VERSION`, CI workflow, first commit. CI has not executed on a remote. |
-| P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean. |
+| P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean, including the newer recon and mission surfaces; macOS leak check clean. |
 | P2 Console bring-up | Partial — `harness.elf` boots under elfldr and logs 16 CPUs, 2185 MiB, 13952 fds, 342 GiB free on `/data` and a 16-worker budget. The packaged `eboot.bin` title has not been installed, so the phase's literal completion is not met. |
 | P3 Capabilities | Done for the payload path — TLS (200, bad cert rejected), `dlopen` and writes to `/data`, `/data/homebrew` and `/user` observed 2026-11-18; USB was absent. |
 | P4 Tool surface | Mostly done — resume returned 206 with a matching digest and the free-space cap fired on a 2 MiB mount; 1 GB and peak RSS tracked below. |
@@ -78,8 +78,8 @@ clone; `README.md` build section matches reality.
 
 All of A1–A7 closed with proving tests; A8 partial (CI unexecuted). New
 modules: `paths`, `policy`, `secrets`, `sha256`; streaming download client;
-ASan/UBSan-clean suites; fuzz drivers for the JSON parser and manifest
-compiler.
+ASan/UBSan-clean suites; fuzz drivers for the JSON parser, manifest compiler,
+recon header/string/tree surface and mission parser, plus a macOS leak check.
 
 Fix A1–A4, add streaming HTTP, path canonicalisation, manifest URL policy,
 per-tool deadlines, and a fuzz target. Full specs in `docs/AUDIT.md`.

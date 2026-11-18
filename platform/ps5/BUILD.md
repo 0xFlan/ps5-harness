@@ -45,9 +45,10 @@ the checklist asks you to install.
 Every production source file is compiled for the target:
 
 ```
-src/agent.cpp  src/agents.cpp src/core.cpp  src/delegation.cpp
-src/endpoints.cpp src/http.cpp src/json.cpp src/main.cpp src/paths.cpp
-src/plugins.cpp src/policy.cpp src/pool.cpp src/resources.cpp src/runtime.cpp
+src/agent.cpp  src/agents.cpp src/builtin_skills.cpp src/core.cpp
+src/delegation.cpp src/endpoints.cpp src/http.cpp src/json.cpp src/main.cpp
+src/mission.cpp src/mission_parse.cpp src/paths.cpp src/plugins.cpp
+src/policy.cpp src/pool.cpp src/recon.cpp src/resources.cpp src/runtime.cpp
 src/secrets.cpp src/sha256.cpp src/skills.cpp platform/ps5/console_compat.cpp
 ```
 

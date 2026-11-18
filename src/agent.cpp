@@ -1,5 +1,6 @@
 #include "ps5h/agent.h"
 
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -95,12 +96,19 @@ Json Agent::completion(const Json& messages, AgentRunStats* stats) {
     if (usage.is_object() &&
         (usage.contains("prompt_tokens") || usage.contains("completion_tokens") ||
          usage.contains("total_tokens"))) {
-      stats->prompt_tokens +=
-          static_cast<long long>(usage["prompt_tokens"].as_number(0));
-      stats->completion_tokens +=
-          static_cast<long long>(usage["completion_tokens"].as_number(0));
-      stats->total_tokens +=
-          static_cast<long long>(usage["total_tokens"].as_number(0));
+      // A provider can return inf, NaN, negatives or values outside long long.
+      // Clamp before converting so hostile usage data cannot trigger UB.
+      const auto token_count = [](const Json& value) -> long long {
+        const double number = value.as_number(0);
+        if (!std::isfinite(number) || number <= 0.0) {
+          return 0;
+        }
+        return number >= 1.0e15 ? 1000000000000000LL
+                                : static_cast<long long>(number);
+      };
+      stats->prompt_tokens += token_count(usage["prompt_tokens"]);
+      stats->completion_tokens += token_count(usage["completion_tokens"]);
+      stats->total_tokens += token_count(usage["total_tokens"]);
       stats->usage_reported = true;
     } else {
       // A missing usage block makes a token refund unsafe. Keep the full child

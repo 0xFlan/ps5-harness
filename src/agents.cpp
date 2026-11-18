@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <string>
@@ -75,7 +76,7 @@ bool integral_number(const Json& value, int minimum, int maximum, int* out,
     return false;
   }
   const double number = value.as_number();
-  if (number < minimum || number > maximum ||
+  if (!std::isfinite(number) || number < minimum || number > maximum ||
       number != static_cast<double>(static_cast<int>(number))) {
     *error = std::string(field) + " must be an integer in [" +
              std::to_string(minimum) + ", " + std::to_string(maximum) + "]";

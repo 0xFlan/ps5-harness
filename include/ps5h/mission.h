@@ -32,6 +32,10 @@ struct MissionLoad {
 // one delegated profile/task or a bounded swarm of independent lanes.
 MissionLoad load_mission(const std::string& path);
 
+// Parses already-read mission bytes. This is the production parser exposed for
+// the sanitizer/fuzz harness; load_mission() only adds the file-size bound.
+MissionLoad parse_mission_text(const std::string& text);
+
 // Runs the mission against a delegator at depth 0. Each step is a child at depth
 // 1, so a step itself may delegate one level further within the configured
 // max_depth. Stops at the first failed step and includes prior answers as

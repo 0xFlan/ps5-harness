@@ -1,6 +1,7 @@
 #include "ps5h/delegation.h"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <memory>
 #include <string>
@@ -430,14 +431,19 @@ Tool make_swarm_tool(std::shared_ptr<Delegator> delegator, int depth,
         out["error"] = "each swarm task requires profile and task";
         return out;
       }
-      int steps = static_cast<int>(item["max_steps"].as_number(0));
-      if (steps < 0) steps = 0;
-      if (steps > 64) steps = 64;
+      const double requested_steps = item["max_steps"].as_number(0);
+      int steps = 0;
+      if (std::isfinite(requested_steps) && requested_steps > 0.0) {
+        steps = requested_steps > 64.0 ? 64 : static_cast<int>(requested_steps);
+      }
       task.max_steps = steps;
-      long long tokens = static_cast<long long>(
-          item["max_tokens"].as_number(0));
-      if (tokens < 0) tokens = 0;
-      if (tokens > 32768) tokens = 32768;
+      const double requested_tokens = item["max_tokens"].as_number(0);
+      long long tokens = 0;
+      if (std::isfinite(requested_tokens) && requested_tokens > 0.0) {
+        tokens = requested_tokens > 32768.0
+                     ? 32768
+                     : static_cast<long long>(requested_tokens);
+      }
       task.max_tokens = tokens;
       tasks.push_back(std::move(task));
     }

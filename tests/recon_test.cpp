@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -173,6 +174,62 @@ void test_elf_and_strings(const std::string& root) {
   assert(saw_second);
 }
 
+void test_hostile_headers_and_numbers(const std::string& root) {
+  // Truncated containers must never read past the supplied prefix.
+  for (std::size_t size = 0; size <= 64; ++size) {
+    const Json header = recon_detail::describe_header(std::string(size, '\0'));
+    assert(header["format"].is_string());
+    assert(header["magic"].is_string());
+  }
+
+  // A PE e_lfanew near UINT32_MAX used to wrap pe_offset + 4 and make
+  // string::compare throw out_of_range.
+  const std::uint32_t offsets[] = {0xffffffffu, 0xfffffffeu, 0xfffffffdu,
+                                   0xfffffffcu};
+  for (std::uint32_t offset : offsets) {
+    std::string pe(64, '\0');
+    pe[0] = 'M';
+    pe[1] = 'Z';
+    pe[0x3c] = static_cast<char>(offset & 0xff);
+    pe[0x3d] = static_cast<char>((offset >> 8) & 0xff);
+    pe[0x3e] = static_cast<char>((offset >> 16) & 0xff);
+    pe[0x3f] = static_cast<char>((offset >> 24) & 0xff);
+    const Json header = recon_detail::describe_header(pe);
+    assert(header["format"].as_string() == "pe");
+    assert(header["pe"]["signature"].as_bool(true) == false);
+  }
+
+  const StringScanResult scan =
+      recon_detail::scan_strings(std::string(400, 'A') + "\0" + "BCDEF", 4,
+                                 1);
+  assert(scan.strings.size() == 1);
+  assert(scan.strings[0].size() == 160);
+  assert(scan.hit_limit);
+
+  ToolRegistry registry;
+  make_registry(root, &registry);
+  const Tool* tree = registry.find("fs_tree");
+  const Tool* strings = registry.find("fs_strings");
+  assert(tree != nullptr && strings != nullptr);
+
+  const std::string payload = root + "/numbers.bin";
+  write_bytes(payload, "\x7f" "ELF" + std::string(60, '\0') + "hello\0");
+
+  Json tree_args = Json::object();
+  tree_args["path"] = root;
+  tree_args["depth"] = Json(std::numeric_limits<double>::infinity());
+  Json listing = tree->handler(tree_args);
+  assert(listing["ok"].as_bool(false));
+  assert(listing["depth"].as_number() == 8);
+
+  Json string_args = Json::object();
+  string_args["path"] = payload;
+  string_args["min_length"] = Json(std::numeric_limits<double>::infinity());
+  Json found = strings->handler(string_args);
+  assert(found["ok"].as_bool(false));
+  assert(found["strings"].size() <= 200);
+}
+
 void test_tree_and_containment(const std::string& root) {
   const std::string tree_root = canonical_path(root);
   assert(!tree_root.empty());
@@ -245,6 +302,7 @@ int main() {
   test_env_and_tools(root);
   test_env_mount_cap(root);
   test_elf_and_strings(root);
+  test_hostile_headers_and_numbers(root);
   test_tree_and_containment(root);
   std::printf("recon tests passed\n");
   return 0;

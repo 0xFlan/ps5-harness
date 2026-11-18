@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -59,8 +60,12 @@ bool read_capped(const std::string& path, std::size_t limit, std::string* out,
   char buffer[8192];
   std::size_t read = 0;
   while ((read = std::fread(buffer, 1, sizeof buffer, file)) > 0) {
-    if (out->size() + read > limit) {
-      const std::size_t room = limit - out->size();
+    if (out->size() >= limit) {
+      *truncated = true;
+      break;
+    }
+    const std::size_t room = limit - out->size();
+    if (read > room) {
       out->append(buffer, room);
       *truncated = true;
       break;
@@ -73,7 +78,8 @@ bool read_capped(const std::string& path, std::size_t limit, std::string* out,
 
 std::uint64_t read_uint(const std::string& data, std::size_t offset,
                         int width, bool little) {
-  if (offset + static_cast<std::size_t>(width) > data.size()) {
+  if (width <= 0 || offset > data.size() ||
+      static_cast<std::size_t>(width) > data.size() - offset) {
     return 0;
   }
   std::uint64_t value = 0;
@@ -221,11 +227,14 @@ void add_pe_info(const std::string& header, Json* out) {
   if (header.size() < 0x40) {
     return;
   }
-  const std::uint32_t pe_offset =
-      static_cast<std::uint32_t>(read_uint(header, 0x3c, 4, true));
+  // e_lfanew is attacker-controlled. Keep it in size_t and use subtraction for
+  // the bounds test: pe_offset + 4 can wrap in 32-bit arithmetic and turn a
+  // hostile offset into a string::compare out_of_range exception.
+  const std::size_t pe_offset = static_cast<std::size_t>(
+      static_cast<std::uint32_t>(read_uint(header, 0x3c, 4, true)));
   Json pe = Json::object();
   pe["pe_offset"] = static_cast<long long>(pe_offset);
-  if (pe_offset + 4 <= header.size() &&
+  if (pe_offset <= header.size() && header.size() - pe_offset >= 4 &&
       header.compare(pe_offset, 4, "PE\0\0") == 0) {
     pe["signature"] = true;
     const std::uint32_t machine =
@@ -318,6 +327,21 @@ Json tool_error(const std::string& error) {
   return out;
 }
 
+int clamp_json_int(const Json& arguments, const char* key, int fallback,
+                   int minimum, int maximum) {
+  const double value = arguments[key].as_number(fallback);
+  if (std::isnan(value)) {
+    return fallback;
+  }
+  if (value <= static_cast<double>(minimum)) {
+    return minimum;
+  }
+  if (value >= static_cast<double>(maximum)) {
+    return maximum;
+  }
+  return static_cast<int>(value);
+}
+
 bool allowed_path(const PathGuard& guard, const std::string& requested,
                   const std::string& operation, std::string* canonical,
                   Json* error) {
@@ -339,6 +363,56 @@ bool allowed_path(const PathGuard& guard, const std::string& requested,
 }
 
 }  // namespace
+
+namespace recon_detail {
+
+Json describe_header(const std::string& header) {
+  Json out = Json::object();
+  out["magic"] = hex_bytes(header, 16);
+  const std::string format = format_name(header);
+  out["format"] = format;
+  if (format == "elf") {
+    add_elf_info(header, &out);
+  } else if (format == "mach-o") {
+    add_macho_info(header, &out);
+  } else if (format == "pe") {
+    add_pe_info(header, &out);
+  }
+  return out;
+}
+
+StringScanResult scan_strings(const std::string& data, int min_length,
+                              std::size_t max_strings) {
+  StringScanResult result;
+  if (max_strings == 0) {
+    return result;
+  }
+  if (min_length < 4) min_length = 4;
+  if (min_length > 64) min_length = 64;
+  const std::size_t limit = std::min(max_strings, kMaxStrings);
+  std::string current;
+  for (std::size_t i = 0; i <= data.size(); ++i) {
+    const unsigned char byte =
+        i < data.size() ? static_cast<unsigned char>(data[i]) : 0;
+    if (byte >= 0x20 && byte <= 0x7e) {
+      if (current.size() < 160) {
+        current.push_back(static_cast<char>(byte));
+      }
+    } else {
+      if (current.size() >= static_cast<std::size_t>(min_length)) {
+        result.strings.push_back(current);
+        if (result.strings.size() >= limit) {
+          result.hit_limit = true;
+          break;
+        }
+      }
+      current.clear();
+    }
+  }
+  return result;
+}
+
+}  // namespace recon_detail
 
 void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
   {
@@ -474,9 +548,9 @@ void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
       if (looks_secret(root)) {
         return tool_error("path is denied (configuration, credentials or state)");
       }
-      int depth = static_cast<int>(arguments["depth"].as_number(3));
-      if (depth < 1) depth = 1;
-      if (depth > 8) depth = 8;
+      // A JSON number can be inf, NaN or outside int's range. Clamp before
+      // converting; a raw static_cast is undefined behaviour for those values.
+      const int depth = clamp_json_int(arguments, "depth", 3, 1, 8);
 
       std::size_t remaining = kMaxTreeEntries;
       bool truncated = false;
@@ -554,15 +628,9 @@ void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
       if (!read_prefix(path, 64, &header)) {
         return tool_error("cannot read: " + path);
       }
-      out["magic"] = hex_bytes(header, 16);
-      const std::string format = format_name(header);
-      out["format"] = format;
-      if (format == "elf") {
-        add_elf_info(header, &out);
-      } else if (format == "mach-o") {
-        add_macho_info(header, &out);
-      } else if (format == "pe") {
-        add_pe_info(header, &out);
+      const Json header_info = recon_detail::describe_header(header);
+      for (const auto& field : header_info.fields()) {
+        out[field.first] = field.second;
       }
       return out;
     };
@@ -595,33 +663,19 @@ void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
                         &error)) {
         return error;
       }
-      int min_length = static_cast<int>(arguments["min_length"].as_number(4));
-      if (min_length < 4) min_length = 4;
-      if (min_length > 64) min_length = 64;
+      const int min_length =
+          clamp_json_int(arguments, "min_length", 4, 4, 64);
       std::string data;
       bool truncated = false;
       if (!read_capped(path, kMaxStringsInput, &data, &truncated)) {
         return tool_error("cannot read: " + path);
       }
+      const StringScanResult scan =
+          recon_detail::scan_strings(data, min_length, kMaxStrings);
+      truncated = truncated || scan.hit_limit;
       Json strings = Json::array();
-      std::string current;
-      for (std::size_t i = 0; i <= data.size(); ++i) {
-        const unsigned char byte =
-            i < data.size() ? static_cast<unsigned char>(data[i]) : 0;
-        if (byte >= 0x20 && byte <= 0x7e) {
-          if (current.size() < 160) {
-            current.push_back(static_cast<char>(byte));
-          }
-        } else {
-          if (current.size() >= static_cast<std::size_t>(min_length)) {
-            strings.push_back(current);
-            if (strings.size() >= kMaxStrings) {
-              truncated = true;
-              break;
-            }
-          }
-          current.clear();
-        }
+      for (const std::string& text : scan.strings) {
+        strings.push_back(text);
       }
       Json out = Json::object();
       out["ok"] = true;

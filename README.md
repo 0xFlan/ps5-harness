@@ -44,7 +44,9 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 ```bash
 make                # build/harness
 make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, package and e2e
-make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
+make fuzz-run       # ASan/UBSan: JSON, manifest, recon and mission fuzzers, 20k iterations each
+make sanitize-test  # recon and mission host tests under ASan/UBSan
+make leaks-check    # macOS system leak check on the plain recon/mission fuzz drivers
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
 ./build/harness --resources   # CPUs, memory, rlimits and mount space
@@ -541,8 +543,10 @@ Verified on the host:
   agent-profile, skill, recon and mission tests, PS5 package validation and
   end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
-- 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
-  clean
+- 20,000-iteration ASan/UBSan fuzz runs on the JSON parser, manifest compiler,
+  recon header/string/tree surface and mission parser; the recon and mission
+  host tests also pass sanitized. On macOS, where ASan has no LeakSanitizer,
+  `make leaks-check` reports zero leaked bytes for both new fuzz drivers
 - Plugin ABI v2: an out-of-tree `.so` loads, registers and runs
 - **Local agent profiles**: schema/path-confinement tests pass; the end-to-end
   CLI test proves a profile's system prompt, model, temperature and token cap
@@ -561,10 +565,12 @@ Verified on the host:
   ambiguous match, applies `replace_all`, refuses a write outside the roots,
   and asserts that a delegated child's tool schema still carries `skill` and
   `fs_edit`
-- **Local recon, plan mode, swarms and missions**: `recon_test` covers ELF
-  identification, capped strings, bounded trees, symlink handling, secret-name
-  denial and mount filtering; `mission_test` covers valid/invalid missions,
-  duplicate ids, width/step/budget caps and missing files. The e2e suite proves
+- **Local recon, plan mode, swarms and missions**: `recon_test` covers ELF,
+  Mach-O and PE identification, truncated and hostile headers (including PE
+  offsets that wrap in 32-bit arithmetic), capped strings, bounded trees,
+  symlink handling, secret-name denial, mount filtering and non-finite numeric
+  arguments; `mission_test` covers valid/invalid missions, duplicate ids,
+  width/step/budget caps, missing files and non-finite budgets. The e2e suite proves
   plan mode sends no mutating tool schema and cannot create a file, a mission
   runs a single step then a two-lane swarm with the first answer as context,
   and a nine-lane swarm is refused before any child starts

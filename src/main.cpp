@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +37,19 @@
 namespace {
 
 using namespace ps5h;
+
+int bounded_json_int(double value, int fallback, int minimum, int maximum) {
+  if (std::isnan(value)) {
+    return fallback;
+  }
+  if (value <= static_cast<double>(minimum)) {
+    return minimum;
+  }
+  if (value >= static_cast<double>(maximum)) {
+    return maximum;
+  }
+  return static_cast<int>(value);
+}
 
 std::string add_plan_mode_prompt(const std::string& base) {
   return base +
@@ -724,7 +738,8 @@ int main(int argc, char** argv) {
           config.temperature = model["temperature"].as_number(config.temperature);
         }
         if (model["max_tokens"].is_number()) {
-          config.max_tokens = static_cast<int>(model["max_tokens"].as_number());
+          config.max_tokens = bounded_json_int(
+              model["max_tokens"].as_number(), config.max_tokens, 0, 32768);
         }
       }
       if (root["endpoints_dir"].is_string()) {
@@ -744,11 +759,13 @@ int main(int argc, char** argv) {
         system_prompt_from_config = true;
       }
       if (root["max_steps"].is_number()) {
-        max_steps = static_cast<int>(root["max_steps"].as_number());
+        max_steps = bounded_json_int(root["max_steps"].as_number(), max_steps,
+                                     0, 64);
       }
       if (!max_depth_from_flag && root["delegation_max_depth"].is_number()) {
-        max_delegation_depth =
-            static_cast<int>(root["delegation_max_depth"].as_number());
+        max_delegation_depth = bounded_json_int(
+            root["delegation_max_depth"].as_number(), max_delegation_depth, 0,
+            8);
       }
       for (const auto& entry : root["allowed_roots"].items()) {
         if (entry.is_string()) allowed_roots.push_back(entry.as_string());

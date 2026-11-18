@@ -106,12 +106,43 @@ void test_invalid_missions() {
   assert(missing_file.error.find("cannot open") != std::string::npos);
 }
 
+void test_non_finite_budgets() {
+  // JSON permits 1e999, which strtod turns into infinity. Converting that to
+  // int/long long is undefined behaviour; the parser must reject it first.
+  MissionLoad huge_steps = parse_mission_text(R"({
+    "steps": [{"profile": "x", "task": "y", "max_steps": 1e999}]
+  })");
+  assert(!huge_steps.ok);
+  assert(huge_steps.error.find("max_steps") != std::string::npos);
+
+  MissionLoad huge_tokens = parse_mission_text(R"({
+    "steps": [{"profile": "x", "task": "y", "max_tokens": 1e999}]
+  })");
+  assert(!huge_tokens.ok);
+  assert(huge_tokens.error.find("max_tokens") != std::string::npos);
+
+  MissionLoad lane_huge = parse_mission_text(R"({
+    "steps": [{"swarm": [{"profile": "x", "task": "y",
+                            "max_tokens": -1e999}]}]
+  })");
+  assert(!lane_huge.ok);
+
+  MissionLoad boundary = parse_mission_text(R"({
+    "steps": [{"profile": "x", "task": "y", "max_steps": 64,
+               "max_tokens": 32768}]
+  })");
+  assert(boundary.ok);
+  assert(boundary.mission.steps[0].max_steps == 64);
+  assert(boundary.mission.steps[0].max_tokens == 32768);
+}
+
 }  // namespace
 
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   test_valid_mission();
   test_invalid_missions();
+  test_non_finite_budgets();
   std::printf("mission tests passed\n");
   return 0;
 }

@@ -127,6 +127,15 @@ plugin-example: examples/plugins/hello/hello.so
 # coverage-guided targets where the runtime exists (Linux/LLVM).
 FUZZ_FLAGS := -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude -DPS5H_HTTP_STUB
 FUZZ_SRCS := src/json.cpp src/core.cpp src/endpoints.cpp src/policy.cpp src/http.cpp
+FUZZ_RECON_SRCS := src/recon.cpp src/paths.cpp src/sha256.cpp src/core.cpp src/json.cpp
+FUZZ_MISSION_SRCS := src/mission_parse.cpp src/json.cpp
+FUZZ_LIBS := $(if $(filter Linux,$(UNAME_S)),-pthread,)
+FUZZ_ASAN_OPTIONS := detect_leaks=1:halt_on_error=1
+ifeq ($(UNAME_S),Darwin)
+# Apple's AddressSanitizer has no LeakSanitizer. `make leaks-check` uses the
+# system leaks tool on plain builds instead.
+FUZZ_ASAN_OPTIONS := detect_leaks=0:halt_on_error=1
+endif
 
 build/fuzz_json_driver: fuzz/driver.cpp fuzz/fuzz_json.cpp $(FUZZ_SRCS) | build
 	$(CXX) $(FUZZ_FLAGS) $^ -o $@
@@ -134,15 +143,23 @@ build/fuzz_json_driver: fuzz/driver.cpp fuzz/fuzz_json.cpp $(FUZZ_SRCS) | build
 build/fuzz_manifest_driver: fuzz/driver.cpp fuzz/fuzz_manifest.cpp $(FUZZ_SRCS) | build
 	$(CXX) $(FUZZ_FLAGS) $^ -o $@
 
-fuzz: build/fuzz_json_driver build/fuzz_manifest_driver
+build/fuzz_recon_driver: fuzz/driver.cpp fuzz/fuzz_recon.cpp $(FUZZ_RECON_SRCS) | build
+	$(CXX) $(FUZZ_FLAGS) $^ -o $@ $(FUZZ_LIBS)
+
+build/fuzz_mission_driver: fuzz/driver.cpp fuzz/fuzz_mission.cpp $(FUZZ_MISSION_SRCS) | build
+	$(CXX) $(FUZZ_FLAGS) $^ -o $@
+
+fuzz: build/fuzz_json_driver build/fuzz_manifest_driver build/fuzz_recon_driver build/fuzz_mission_driver
 
 fuzz-run: fuzz
-	ASAN_OPTIONS=detect_leaks=0 ./build/fuzz_json_driver 20000
-	ASAN_OPTIONS=detect_leaks=0 ./build/fuzz_manifest_driver 20000
+	ASAN_OPTIONS=$(FUZZ_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/fuzz_json_driver 20000
+	ASAN_OPTIONS=$(FUZZ_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/fuzz_manifest_driver 20000
+	ASAN_OPTIONS=$(FUZZ_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/fuzz_recon_driver 20000
+	ASAN_OPTIONS=$(FUZZ_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/fuzz_mission_driver 20000
 
 LIBFUZZER_FLAGS := -std=c++20 -g -O1 -fsanitize=fuzzer,address -fno-omit-frame-pointer -Iinclude -DPS5H_HTTP_STUB
 
-fuzz-libfuzzer: build/fuzz_json build/fuzz_manifest
+fuzz-libfuzzer: build/fuzz_json build/fuzz_manifest build/fuzz_recon build/fuzz_mission
 
 build/fuzz_json: fuzz/fuzz_json.cpp src/json.cpp | build
 	$(CXX) $(LIBFUZZER_FLAGS) $^ -o $@
@@ -150,7 +167,49 @@ build/fuzz_json: fuzz/fuzz_json.cpp src/json.cpp | build
 build/fuzz_manifest: fuzz/fuzz_manifest.cpp $(FUZZ_SRCS) | build
 	$(CXX) $(LIBFUZZER_FLAGS) $^ -o $@
 
+build/fuzz_recon: fuzz/fuzz_recon.cpp $(FUZZ_RECON_SRCS) | build
+	$(CXX) $(LIBFUZZER_FLAGS) $^ -o $@ $(FUZZ_LIBS)
+
+build/fuzz_mission: fuzz/fuzz_mission.cpp $(FUZZ_MISSION_SRCS) | build
+	$(CXX) $(LIBFUZZER_FLAGS) $^ -o $@
+
+# Plain -O1 builds for the system leaks tool on macOS. ASan's allocator and
+# leak checker cannot coexist there, so this covers the leak leg separately.
+PLAIN_FUZZ_FLAGS := -std=c++20 -g -O1 -Iinclude -DPS5H_HTTP_STUB
+
+build/fuzz_recon_plain: fuzz/driver.cpp fuzz/fuzz_recon.cpp $(FUZZ_RECON_SRCS) | build
+	$(CXX) $(PLAIN_FUZZ_FLAGS) $^ -o $@ $(FUZZ_LIBS)
+
+build/fuzz_mission_plain: fuzz/driver.cpp fuzz/fuzz_mission.cpp $(FUZZ_MISSION_SRCS) | build
+	$(CXX) $(PLAIN_FUZZ_FLAGS) $^ -o $@
+
+# Deterministic host tests under the same sanitizers as the fuzz drivers. The
+# tests cover path containment and mission execution as well as the parsers.
+SAN_FLAGS := -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude
+SAN_ASAN_OPTIONS := detect_leaks=1:halt_on_error=1
+ifeq ($(UNAME_S),Darwin)
+SAN_ASAN_OPTIONS := detect_leaks=0:halt_on_error=1
+endif
+
+build/recon_test_san: tests/recon_test.cpp $(LIB_SRC) | build
+	$(CXX) $(SAN_FLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
+build/mission_test_san: tests/mission_test.cpp $(LIB_SRC) | build
+	$(CXX) $(SAN_FLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
+sanitize-test: build/recon_test_san build/mission_test_san
+	ASAN_OPTIONS=$(SAN_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/recon_test_san
+	ASAN_OPTIONS=$(SAN_ASAN_OPTIONS) UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./build/mission_test_san
+
+leaks-check: build/fuzz_recon_plain build/fuzz_mission_plain
+ifeq ($(UNAME_S),Darwin)
+	leaks -atExit -- ./build/fuzz_recon_plain 2000
+	leaks -atExit -- ./build/fuzz_mission_plain 20000
+else
+	@echo "macOS leaks tool unavailable; use make fuzz-run for LeakSanitizer"
+endif
+
 clean:
 	rm -rf build examples/plugins/hello/hello.so
 
-.PHONY: all test tools plugin-example fuzz fuzz-run fuzz-libfuzzer clean
+.PHONY: all test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean
