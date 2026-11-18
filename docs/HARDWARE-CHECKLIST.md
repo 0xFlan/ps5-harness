@@ -172,6 +172,15 @@ Run these on the same payload build. They are read-only except where noted.
 
 ## P6 — Session
 
+- [ ] `--serve <port>` serves the workspace; `/` returns the page and
+      `/api/state` returns 401 without the token. (The 2026-11-18
+      `0.1.0-c2c533f` smoke passed both, and authenticated state listed all 20
+      tools including `fs_search`, `hexdump` and `sysctl`.)
+- [ ] A provider key is staged and a full turn runs through the browser UI;
+      then restart the payload and confirm the transcript resumes from the
+      session file.
+- [ ] Open the page on a phone over the LAN and confirm the tool/activity panels
+      remain usable at that width.
 - [ ] Ten minutes of use with no terminal: browse, download, cancel, locate.
 - [ ] Queue work on an always-on host while the console is asleep, then run it
       after wake once `harness.elf` is launched again. No row here is expected
