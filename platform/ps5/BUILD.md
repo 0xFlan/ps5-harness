@@ -2,7 +2,8 @@
 
 Status: **the package builds and is host-validated on this Mac; nothing has run
 on a console.** P2 is incomplete until the payload boots on a PS5 and writes its
-log line. The host checks below prove file structure, not console behaviour.
+log line. The host checks below prove file structure and probe behaviour, not
+console behaviour.
 
 ## What the build produces
 
@@ -10,14 +11,16 @@ log line. The host checks below prove file structure, not console behaviour.
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 58,928 | `1b88af9a18190d990a272ae15731a252f7950d592a51eea90812e6ba7e4ade24` |
-| `bringup.elf` | 111,664 | `763823d2935afd95df9784298e7380daf939e9122b1c998166f02b7bf4102172` |
+| `eboot.bin` | 412,064 | `7d1c914e3fa5f00d184cd265022a649bc1f873927bd10b2cb5b21c7b5e57d0b2` |
+| `bringup.elf` | 601,376 | `a16cdeb60bc54b02c86846e36bae24be0e13d0c5cd6f38c99d86884f4d0a0660` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-56c6056`. The build id embeds `VERSION` and the
+Measured from build id `0.1.0-0212d60`. The build id embeds `VERSION` and the
 commit, so any commit or source change alters these hashes; quote the build id,
-not only a hash, in a console report.
+not only a hash, in a console report. The payload grew because it now links the
+shared resource probe (libc++ strings and vectors), not because it carries the
+harness.
 
 The package contains:
 
@@ -45,6 +48,44 @@ APP_VER    := 01.00
 `PHAR00001` is a homebrew-range ID (four uppercase letters, five digits), not a
 Sony title ID, and does not sit in the `PPSA`/`CUSA` retail ranges. Change it in
 `title.mk`; the SFO, `param.json`, package folder and payload log all follow.
+
+## Resource probe
+
+P2's artifact answers a larger question than "did it start": what would an
+agent living on this console inherit? After the build/cwd lines and before
+`done`, the payload writes these lines to stdout and to the same log file:
+
+```
+ps5-harness bringup cpu online=8 configured=16
+ps5-harness bringup mem total=… MiB available=… MiB page=16384 B
+ps5-harness bringup limit nofile=…/… as=…/… data=…/…
+ps5-harness bringup mount /data type=… free=… MiB total=… MiB
+ps5-harness bringup mount … (one line per getmntinfo entry)
+ps5-harness bringup candidate /data free=… MiB total=… MiB
+ps5-harness bringup candidate /user/homebrew free=… MiB total=… MiB
+ps5-harness bringup candidate /mnt/usb0 free=… MiB total=… MiB
+ps5-harness bringup candidate /mnt/usb1 free=… MiB total=… MiB
+ps5-harness bringup threads created=8 requested=8
+ps5-harness bringup alloc request=33554432 ok=1
+```
+
+The numbers above are illustrative; none has been observed on a console. The
+probe reports `cpu_online` from `sysconf`, so it reflects what the loader lets
+the process run on rather than the console's physical core count. Memory is the
+same: `_SC_PHYS_PAGES` and `_SC_AVPHYS_PAGES` as visible to this process. Limits
+are the loader's `RLIMIT_NOFILE`, `RLIMIT_AS` and `RLIMIT_DATA`; `unlimited` is
+printed for `RLIM_INFINITY`. `getmntinfo` enumerates every mount, and the four
+candidates are `statvfs`'d separately because those are the paths the harness
+uses.
+
+Two bounded probes follow: one thread per online CPU (at most 16) created and
+joined, and a 32 MiB heap allocation with every page touched. They prove the
+payload can use more than its starting thread and its own image; they are not a
+stress test and leave nothing running or allocated.
+
+Host-side, the same `src/resources.cpp` backs `./build/harness --resources`, and
+`tests/resources_test.cpp` asserts the CPU, page, memory, mount and missing-path
+paths. That is host verification of the code, not of the console's values.
 
 ## The SFO
 
@@ -171,6 +212,8 @@ and launch **PS5 Harness**. Record what appears (title, icon, error text) in
 - [ ] USB stick formatted and empty (the payload writes a log there if it can).
 - [ ] Console clock correct if TLS will be tested later.
 - [ ] `PHAR00001` unique on this console, or changed in `title.mk` and rebuilt.
+- [ ] Resource lines recorded before interpreting any later failure: CPU,
+      memory, rlimits, mounts, thread count and the allocation result.
 
 ## What this does not prove
 

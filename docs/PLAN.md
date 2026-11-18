@@ -102,8 +102,13 @@ icon, corrupt SFO magic, truncated PNG, missing eboot) each exit 1.
 
 The payload logs through a pre-opened fd with an app-folder fallback, records
 pid/uid/cwd/argv[0], and installs an async-signal-safe fatal handler so a crash
-writes its signal and address. The remaining criterion — boot and log free space
-on the console — needs hardware; no part of this has run on a PS5.
+writes its signal and address. It then reports the resource envelope an agent
+would inherit: online CPUs, visible memory, loader rlimits, every mount with
+free/total space, a bounded thread-per-core probe and a 32 MiB heap probe. The
+same probe backs `harness --resources` and is covered by `resources_test` on the
+host. The remaining criterion — boot and log free space on the console — needs
+hardware; no part of this has run on a PS5, and none of the console's resource
+numbers has been observed.
 
 ## P3 — Console capabilities
 
@@ -125,6 +130,11 @@ helper-process plugin host; no elevated write means USB-first storage.
 Streaming downloader: Range resume, sha256 verification, atomic rename from
 `.part`, free-space precheck, cancellation. Install to `/data/homebrew` and USB.
 Title list and launch, behind the elevation capability probe from P3.
+
+Use P2's measured profile to size the work instead of host defaults: worker
+concurrency from `cpu_online`, in-memory budgets from visible memory, and the
+free-space precheck from the probe's mount list. The P1 caps (4 MB buffered
+response, streaming downloads, per-tool deadlines) do not move.
 
 Completion: a 1 GB download interrupted at 50% resumes and verifies on hardware.
 
@@ -181,7 +191,8 @@ and the support matrix names the exact firmware and exploit toolchain tested.
 - **P2:** which Linux path — container, VM, or remote builder? Needs a decision
   recorded with the exact image/version used.
 - **P3:** does the target firmware permit `dlopen` of an app-local `.so`?
-- **P4:** does the console expose free space per mount without elevation?
+- **P4:** does the console expose free space per mount without elevation? P2's
+  probe now asks this of every mount; the answer is pending hardware.
 - **P5:** registry hosted where — GitHub repo, or the harness fetches a static
   index from any URL the user configures?
 - **P6:** is there a usable text-entry path on the console, or does the LAN

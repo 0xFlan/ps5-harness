@@ -38,6 +38,7 @@ make test           # policy-surface, core, hardening and end-to-end suites
 make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
+./build/harness --resources   # CPUs, memory, rlimits and mount space
 ```
 
 Talk to a model (key comes from the environment, never the config file):
@@ -170,6 +171,12 @@ entry table and required keys; PNG signature, chunk CRCs and 512x512 geometry â€
 and checks the fSELF and ELF headers when the SDK build is present. A host-only
 checkout runs the asset part in `--assets-only` mode.
 
+The payload also measures the machine an agent would inherit: online CPUs,
+visible memory, loader rlimits, every mounted filesystem with free space, a
+bounded thread-per-core probe and a 32 MiB heap probe. The same probe is
+`./build/harness --resources` on the host; `resources_test` checks it there. The
+console's numbers are unmeasured until P2 boots.
+
 The payload writes a log it can still append to if it crashes (build id, title
 ID, pid/uid/cwd, free space per mount, and one `CRASH â€¦ signal=N` line on a
 fault), so a failed first boot leaves evidence rather than a silent exit.
@@ -181,7 +188,8 @@ Remaining:
 
 1. Link `libcurl` from PacBrew's pinned ports when the full harness is built for
    the target. Those archives are built for the payload SDK's libc, not a native
-   title, and need the `fcntl` shim documented upstream.
+   title, and need the `fcntl` shim and libc stand-ins documented upstream. Until
+   that link exists and runs, the console artifact is this probe, not the agent.
 2. Check the fake-SELF `--paid`/`--ptype` values and the generated SFO key set
    against your loader and firmware, using a working homebrew title as the
    reference.
@@ -211,12 +219,19 @@ Verified on the host:
   handler
 - **Cross-build for the console target**: `make -C platform/ps5` compiles the P2
   bring-up payload to an x86-64 FreeBSD ELF and packs a fake-SELF `eboot.bin`
-  (SDK v0.45, LLVM 23.1.4 on macOS)
+  (SDK v0.45, LLVM 23.1.4 on macOS), including the shared resource probe
+- **Resource probe on the host**: `resources_test` asserts CPU, page size,
+  physical memory, mount enumeration, a valid candidate, a missing candidate
+  and the report's stable line prefixes; `harness --resources` prints this Mac's
+  profile
 
 Not verified or not built:
 
 - **Nothing has run on a PS5.** The cross-build produces `eboot.bin`, but it
-  has never been booted; no `dlopen` or TLS test on hardware, no packaging.
+  has never been booted or installed; no `dlopen` or TLS test on hardware.
+- **The console's resource envelope is unknown.** CPU count, visible memory,
+  rlimits, mount points and whether the loader permits the thread and heap
+  probes are all pending the first boot.
 - **CI has not executed.** The workflow is committed; no remote run yet.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a

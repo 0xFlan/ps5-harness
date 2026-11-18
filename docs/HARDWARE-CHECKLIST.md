@@ -53,6 +53,13 @@ passing package check do not satisfy any of them.
 - [ ] Title appears in the shell with the expected name and icon.
 - [ ] Launches without a system error dialog.
 - [ ] Writes a log line containing build id and free space.
+- [ ] Log records `cpu online=… configured=…`, `mem total=… available=…`,
+      `limit nofile=…`, and one `mount … free=… total=…` line per filesystem,
+      plus the four `candidate` lines.
+- [ ] `threads created=N requested=N` matches the online CPUs the process was
+      allowed, or the exact failure is recorded.
+- [ ] `alloc request=33554432 ok=1`; if `0`, record that the loader caps the
+      heap below 32 MiB.
 - [ ] Exits cleanly (no hang on quit).
 - [ ] If it did not exit cleanly: the log ends with a `CRASH build=… signal=N
       (NAME) addr=0x…` line; record it verbatim, it names the fault.
@@ -120,6 +127,7 @@ Log path:
 firmware:            exploit:
 build sha256:        sdk:            toolchain:
 P2 boot:             P3 tls:         P3 dlopen:
+P2 resources (cpu/mem/page/threads/alloc):
 P3 write app/homebrew/usb:
 P4 small/1GB/resume/space/cancel/peak-mem:
 P5 external plugin:  P5 manifest:     P5 isolation:
