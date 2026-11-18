@@ -7,8 +7,8 @@ the relevant rows below are ticked on the console.
 The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4, `0.1.0-4d7499f`
 for local agents, `0.1.0-c0f76b5` for delegation, `0.1.0-653d046` for skills
 and `fs_edit`, `0.1.0-e0b6af4` for recon/plan/swarm/missions, and
-`0.1.0-e6b6205` for the parser-hardening rebuild, elfldr payload path) is
-recorded in `docs/CONSOLE-REPORT.md`: P2
+`0.1.0-e6b6205` for the parser-hardening rebuild and `0.1.0-01c6cbc` for the
+home-screen tile, elfldr payload path) is recorded in `docs/CONSOLE-REPORT.md`: P2
 boot/resources, P3 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks,
 the local-agent list/info checks, the delegation tool/failure checks and the
 skill/edit checks are filled there; the title-install and USB rows remain open.

@@ -15,22 +15,22 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile) |
 
-Current artifacts on disk (memory-safety build `0.1.0-e6b6205`):
+Current artifacts on disk (home-tile build `0.1.0-01c6cbc`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,551,376 | `48a809d928b04469d5b3c516abff476b30fbdfca1613f0babfad921cda32e7c0` |
-| `harness.elf` | 9,499,816 | `01e857e72e6a24a0ad0e1282fe6110f5fc229e1ffaffd7f6ae54bdb8b085a67a` |
+| `eboot.bin` | 7,551,376 | `d63d12df492f56890575ddd7a6f0ad27e6959bae6be6f3b30b4e530147405114` |
+| `harness.elf` | 9,499,816 | `604f125bafdd4caa00d24f0a5c2ad5c29d94c2abd4a194fface7ff5be356d91a` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
-| `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
+| `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
 `0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`; the recon,
 plan, swarm and mission checks use `0.1.0-e0b6af4`; the parser-hardening smoke
-uses `0.1.0-e6b6205`.
+uses `0.1.0-e6b6205`; the home-screen tile is from `0.1.0-01c6cbc`.
 
 ## How it was launched
 
@@ -334,6 +334,16 @@ write.
 No provider key was staged, so the model did not choose a skill or an edit on
 hardware. The host e2e suite drives both tools through the real CLI and asserts
 that a delegated child's tool schema still contains `skill` and `fs_edit`.
+
+## Home-screen tile — `0.1.0-01c6cbc`
+
+The generated `icon0.png` was replaced with a 512x512 PS5-style tile: near-black
+cool gradient, soft vignette, a white H monogram with a glass highlight and one
+blue bridge. It is rendered at 2x and box filtered, so it stays legible at the
+128px size used in a home row; the title is shell-rendered rather than baked in.
+This is a package-art change only, validated by `ps5_package_test`. The actual
+home-screen rendering has not been observed because the title-install path
+remains unverified.
 
 ## Memory-safety rebuild — `0.1.0-e6b6205`
 
