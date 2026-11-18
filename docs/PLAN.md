@@ -1,15 +1,16 @@
 # PS5 Harness — master plan
 
-Status: **P0 and P1 complete; P2's artifact builds on the host.** Boot is
-blocked on a console, so P3 onward has not started. Nothing has run on hardware.
+Status: **P0 and P1 complete; P2's real-agent artifact builds, links and
+validates on the host.** Boot and P3 capabilities are blocked on a console.
+Nothing has run on hardware.
 
 | Phase | State |
 |---|---|
 | P0 Repo hygiene | Done — license, `.gitignore`, `VERSION`, CI workflow, first commit. CI has not executed on a remote. |
 | P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean. |
-| P2 Console bring-up | Partial — `make -C platform/ps5` emits an installable `PHAR00001` package (eboot, ELF, real `param.sfo`, real `icon0.png`) and `make test` validates it on the host; boot is blocked on a console. |
-| P3 Capabilities | **Blocked** — hardware only (TLS, `dlopen`, elevated write). |
-| P4 Tool surface | Partial — streaming downloader with resume and sha256 exists and is unit-tested; install/launch need P3. |
+| P2 Console bring-up | Partial — the real agent cross-builds to `eboot.bin`/`harness.elf` with static libcurl/OpenSSL, console glue and a resource-scaled runtime; the package validator passes on the host. Boot is blocked on a console. |
+| P3 Capabilities | **Blocked** — hardware only (TLS, DNS, CA path, `dlopen`, elevated write). |
+| P4 Tool surface | Partial — streaming downloader with resume/sha256, CPU-sized parallel tool execution, and memory/fd/free-space budgets are implemented and host-tested; install/launch need P3. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
 | P6 UX | Not started. |
 | P7 Audit + release | Partial — threat model, fuzz, ASan and the provider round trip done; hardware audit and release engineering pending. |
@@ -24,10 +25,13 @@ blocked on a console, so P3 onward has not started. Nothing has run on hardware.
 ## What exists today
 
 `ps5-harness` builds on macOS with `-Wall -Wextra` and no warnings. `make test`
-runs four host suites. Four built-in tools (`fs_list`, `fs_read`, `fs_write`,
-`http_get`), manifest compilation (`examples/endpoints/archive.json` → 3 tools),
-and a `.so` plugin loading through the C ABI all work. One live HTTPS call to
-`archive.org/advancedsearch.php` returned real records.
+runs six host suites plus the PS5 package validator. Four built-in tools
+(`fs_list`, `fs_read`, `fs_write`, `http_get`), manifest compilation
+(`examples/endpoints/archive.json` → 3 tools), and a `.so` plugin loading
+through the C ABI all work. One live HTTPS call to
+`archive.org/advancedsearch.php` returned real records. The runtime derives its
+worker count, response buffers and download capacity from a measured resource
+profile rather than host constants.
 
 That is a proof of the extension contract, not a product. The host defects in
 `docs/AUDIT.md` are fixed; the console artifact builds but has never booted.
@@ -83,32 +87,37 @@ Completion: `eboot.bin` boots on the console and writes a log line containing
 its build id and the console's free space. Nothing else is required of it yet.
 
 State: the toolchain decision is recorded — macOS host, SDK zip sha256
-`5fac6409…` (v0.45), LLVM 23.1.4 (details in `platform/ps5/BUILD.md`).
-`make -C platform/ps5` builds `platform/ps5/bringup.cpp` to an x86-64 FreeBSD
-ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The build
-now emits one installable title folder, `.deps/ps5-build/PHAR00001/`, holding
-`eboot.bin`, `bringup.elf`, `sce_sys/param.sfo` and `sce_sys/icon0.png`
-(build `0.1.0-56c6056`). The title ID is chosen once in
-`platform/ps5/title.mk` (`PHAR00001`, homebrew range) and appears in the SFO,
-`param.json`, the package folder and the payload's `title=` log field.
+`5fac6409…` (v0.45), LLVM 23.1.4, and PacBrew v0.41.1 (bundle sha256
+`e811bc2e…`) for static libcurl 8.18.0 / OpenSSL 3.5.2 (details in
+`platform/ps5/BUILD.md`). `make -C platform/ps5` compiles every `src/*.cpp` plus
+`platform/ps5/console_compat.cpp`, links the PacBrew archives, and packs a
+fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The package holds
+`eboot.bin`, `harness.elf`, `sce_sys/param.sfo` and `sce_sys/icon0.png` (build
+`0.1.0-426c2db`). The title ID is chosen once in `platform/ps5/title.mk`
+(`PHAR00001`, homebrew range) and appears in the SFO, `param.json`, the package
+folder and the agent log.
 
-`param.sfo` is generated as a real SFO binary by `platform/ps5/tools/make_sfo.py`
-(the SDK has no writer); `icon0.png` is a real 512x512 RGBA PNG from
-`platform/ps5/tools/make_icon.py`. `make test` regenerates both and runs
-`build/ps5_package_test`, which parses the SFO back from disk (magic, version,
-entry table, required keys) and walks the PNG chunks and CRCs; with the SDK
-build present it also checks the fSELF and ELF headers. Negative cases (missing
-icon, corrupt SFO magic, truncated PNG, missing eboot) each exit 1.
+`console_compat.cpp` supplies the console CA bundle path, `SO_NBIO` socket mode
+and an `fcntl` wrapper for sandboxed sockets. The SDK's payload libc already
+provides the resolver and libc symbols that native titles needed to stub; the
+link resolves without redefining them. `param.sfo` is generated as a real SFO
+binary by `platform/ps5/tools/make_sfo.py`; `icon0.png` is a real 512x512 RGBA
+PNG from `platform/ps5/tools/make_icon.py`. `make test` regenerates both and
+runs `build/ps5_package_test`, which parses the SFO and PNG from disk and checks
+the fSELF magic and agent ELF header.
 
-The payload logs through a pre-opened fd with an app-folder fallback, records
-pid/uid/cwd/argv[0], and installs an async-signal-safe fatal handler so a crash
-writes its signal and address. It then reports the resource envelope an agent
-would inherit: online CPUs, visible memory, loader rlimits, every mount with
-free/total space, a bounded thread-per-core probe and a 32 MiB heap probe. The
-same probe backs `harness --resources` and is covered by `resources_test` on the
-host. The remaining criterion — boot and log free space on the console — needs
+The runtime now consumes the probe: workers equal online CPUs unless
+`RLIMIT_NOFILE` cannot support them, buffered responses are a sixteenth of
+visible memory capped by `RLIMIT_AS`/`RLIMIT_DATA`, and download capacity is
+the destination's free space minus a reserve and `RLIMIT_FSIZE`. `runtime_test` and the parallel tool-call e2e case
+fail if those stop following the measurements. The agent logs build id, resource
+lines and budget to `/data/ps5-harness-agent.log` (with fallbacks) and accepts
+`--log`.
+
+The remaining criterion — boot and log free space on the console — needs
 hardware; no part of this has run on a PS5, and none of the console's resource
-numbers has been observed.
+numbers has been observed. A title launch supplies no argv, so the packaged
+`eboot.bin` prints usage until a launch path for config/prompt/key exists.
 
 ## P3 — Console capabilities
 
@@ -125,16 +134,21 @@ Completion: all three demonstrated on hardware. A partial result is a valid
 outcome and changes the design: no `dlopen` means manifests-only plus a
 helper-process plugin host; no elevated write means USB-first storage.
 
+The agent binary now contains the real curl/OpenSSL path, the console CA lookup,
+the socket shims and `dlopen`; that is build evidence only. None of the three
+P3 criteria is claimed until it is observed on a console.
+
 ## P4 — Tool surface
 
 Streaming downloader: Range resume, sha256 verification, atomic rename from
 `.part`, free-space precheck, cancellation. Install to `/data/homebrew` and USB.
 Title list and launch, behind the elevation capability probe from P3.
 
-Use P2's measured profile to size the work instead of host defaults: worker
-concurrency from `cpu_online`, in-memory budgets from visible memory, and the
-free-space precheck from the probe's mount list. The P1 caps (4 MB buffered
-response, streaming downloads, per-tool deadlines) do not move.
+The measured budget is now implemented: worker concurrency from `cpu_online`
+bounded by the fd limit, buffered responses from a sixteenth of visible memory,
+and download capacity from the destination filesystem and `RLIMIT_FSIZE`.
+Streaming downloads and per-tool deadlines still hold. The remaining P4 work is
+install/launch and a hardware transfer test, both behind P3.
 
 Completion: a 1 GB download interrupted at 50% resumes and verifies on hardware.
 
@@ -185,12 +199,16 @@ and the support matrix names the exact firmware and exploit toolchain tested.
 | D7 | No ROM/torrent/Vimm adapters, ever | Legal exposure and immediate catalog rejection | Never |
 | D8 | Plugin results use an `emit()` callback into host memory (ABI v2) | v1 freed plugin-allocated memory in the host; allocator mismatch is silent heap corruption | Never (append-only from here) |
 | D9 | Fuzz targets build a libFuzzer-free driver by default | Apple clang ships no libFuzzer runtime; CI must fuzz on both runners | If CI moves to Linux-only |
+| D10 | Static PacBrew libcurl/OpenSSL + console glue for the agent | The payload SDK libc supplies the resolver/libc symbols; the console still needs the CA path, `SO_NBIO` and the `fcntl` wrapper | If a firmware needs a different TLS backend |
+| D11 | Runtime budget derived from the resource probe | Fixed host caps left console cores and memory idle; the probe gives the real envelope | If a measured backend constraint disappears |
 
 ## Open questions (answer before the phase that needs them)
 
-- **P2:** which Linux path — container, VM, or remote builder? Needs a decision
-  recorded with the exact image/version used.
-- **P3:** does the target firmware permit `dlopen` of an app-local `.so`?
+- **P2:** how does a console launch supply `--config`, `--prompt` and the model
+  key to the agent? A title launch has no argv; the ELF path is the current
+  workaround and a default entry point is undecided.
+- **P3:** does the target firmware permit `dlopen` of an app-local `.so`, and
+  do the resolver and `CA_LIST.cer` work from this payload?
 - **P4:** does the console expose free space per mount without elevation? P2's
   probe now asks this of every mount; the answer is pending hardware.
 - **P5:** registry hosted where — GitHub repo, or the harness fetches a static

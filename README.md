@@ -34,7 +34,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # policy-surface, core, hardening and end-to-end suites
+make test           # policy-surface, core, resources, runtime, hardening, package and e2e
 make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
@@ -149,61 +149,55 @@ plugin directories you would run as a program.
 
 ## Building for the PS5
 
-Partly done. `make -C platform/ps5` cross-compiles the P2 bring-up payload
-(`platform/ps5/bringup.cpp`) to an x86-64 FreeBSD ELF and emits one installable
-title folder, `.deps/ps5-build/PHAR00001/`:
+The real agent, not the bring-up probe. `make -C platform/ps5` cross-compiles
+every source in `src/` plus `platform/ps5/console_compat.cpp` to an x86-64
+FreeBSD ELF and emits one installable title folder:
 
 ```
 PHAR00001/
-  eboot.bin            fake SELF, for a title loader
-  bringup.elf          the real ELF, for elfldr
+  eboot.bin            fake SELF built from harness.elf
+  harness.elf          the real agent ELF, for elfldr
   sce_sys/param.sfo    generated SFO binary (real header, entry table, keys)
   sce_sys/icon0.png    generated 512x512 RGBA icon
   sce_sys/param.json   metadata for installers that stage JSON instead
 ```
 
-The title identity lives in `platform/ps5/title.mk`; `PHAR00001` is a
-homebrew-range ID used consistently in the SFO, `param.json`, the package folder
-and the payload's `title=` log field. Both generated files come from in-repo
-tools (`platform/ps5/tools/`), because the payload SDK has no SFO or icon writer.
-`make test` regenerates them and parses them back from disk — SFO magic, version,
-entry table and required keys; PNG signature, chunk CRCs and 512x512 geometry —
-and checks the fSELF and ELF headers when the SDK build is present. A host-only
-checkout runs the asset part in `--assets-only` mode.
+The agent links PacBrew's static libcurl 8.18.0 and OpenSSL 3.5.2 (plus zlib,
+zstd and libpsl) for the payload SDK's libc. The target build adds the console's
+CA bundle, the `SO_NBIO` socket mode and an `fcntl` wrapper for sandboxed
+sockets. The SDK libc already provides the resolver and libc symbols native
+titles had to stub, so those are not redefined here.
 
-The payload also measures the machine an agent would inherit: online CPUs,
-visible memory, loader rlimits, every mounted filesystem with free space, a
-bounded thread-per-core probe and a 32 MiB heap probe. The same probe is
-`./build/harness --resources` on the host; `resources_test` checks it there. The
-console's numbers are unmeasured until P2 boots.
+At startup the agent probes online CPUs, visible memory, rlimits and every
+mount, then derives its runtime budget: one tool worker per usable CPU, buffered
+responses from a sixteenth of visible memory, and download capacity from the
+destination filesystem minus a reserve. `tests/runtime_test.cpp` and the e2e
+suite fail if those stop following the probe. `harness --resources` shows the
+same numbers on the host.
 
-The payload writes a log it can still append to if it crashes (build id, title
-ID, pid/uid/cwd, free space per mount, and one `CRASH … signal=N` line on a
-fault), so a failed first boot leaves evidence rather than a silent exit.
-`platform/ps5/BUILD.md` records the exact SDK and LLVM versions, artifact hashes,
-the package layout, and the console load/install commands. Nothing has booted on
-a console.
+`make -C platform/ps5 bringup` still builds the old diagnostic probe separately;
+it is not the package artifact. `platform/ps5/BUILD.md` records the SDK and
+PacBrew pins, artifact hashes, the shims and the console commands.
 
 Remaining:
 
-1. Link `libcurl` from PacBrew's pinned ports when the full harness is built for
-   the target. Those archives are built for the payload SDK's libc, not a native
-   title, and need the `fcntl` shim and libc stand-ins documented upstream. Until
-   that link exists and runs, the console artifact is this probe, not the agent.
-2. Check the fake-SELF `--paid`/`--ptype` values and the generated SFO key set
-   against your loader and firmware, using a working homebrew title as the
-   reference.
-3. Ship a CA bundle; verify the console clock before the first TLS request.
-4. Plugins become `.so` files loaded with `dlopen` — confirm on your firmware.
+1. Boot the agent on a console and record the log. A title launch supplies no
+   argv, so the packaged `eboot.bin` currently prints usage; a runnable session
+   needs a loader that preserves `--config`/`--prompt` and the model key.
+2. Verify DNS, the CA list and the clock before claiming TLS (P3).
+3. Confirm `dlopen` of a plugin `.so` and elevated writes on your firmware (P3).
+4. Check the fake-SELF `--paid`/`--ptype` values and the SFO key set against
+   your loader, using a working homebrew title as the reference.
 
 ## Status
 
 Verified on the host:
 
 - Clean build, `-Wall -Wextra`, no warnings
-- `make test`: policy-surface, core, hardening (paths, redaction, sha256,
-  streaming download with resume/verify, body cap, URL policy, deadlines) and
-  end-to-end provider suites
+- `make test`: policy-surface, core, resources, runtime (CPU/fd/memory/free
+  space budget, parallel executor), hardening (paths, redaction, sha256,
+  streaming download with resume/verify, body cap, URL policy, deadlines),
+  PS5 package validation and end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
   clean
@@ -217,21 +211,30 @@ Verified on the host:
   with a clean error; an unknown tool becomes a tool-level error the loop
   recovers from; the tool deadline returns without waiting for the abandoned
   handler
-- **Cross-build for the console target**: `make -C platform/ps5` compiles the P2
-  bring-up payload to an x86-64 FreeBSD ELF and packs a fake-SELF `eboot.bin`
-  (SDK v0.45, LLVM 23.1.4 on macOS), including the shared resource probe
+- **Real agent cross-build**: `make -C platform/ps5` compiles all `src/*.cpp`
+  plus the console glue, links PacBrew libcurl/OpenSSL, and packs a fake-SELF
+  `eboot.bin` from `harness.elf` (SDK v0.45, LLVM 23.1.4 on macOS)
+- **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
+  disk, checks the fSELF magic and the agent ELF header, and passes on the
+  package above
+- **Runtime scaling**: `runtime_test` fails if worker count stops tracking
+  online CPUs or the fd limit, if the buffered response stops scaling with
+  memory, or if download capacity ignores free space/`RLIMIT_FSIZE`; the e2e
+  suite proves parallel tool calls use the budgeted executor
 - **Resource probe on the host**: `resources_test` asserts CPU, page size,
-  physical memory, mount enumeration, a valid candidate, a missing candidate
-  and the report's stable line prefixes; `harness --resources` prints this Mac's
-  profile
+  physical memory, mount enumeration and report formatting; `harness
+  --resources` prints this Mac's profile
 
 Not verified or not built:
 
-- **Nothing has run on a PS5.** The cross-build produces `eboot.bin`, but it
-  has never been booted or installed; no `dlopen` or TLS test on hardware.
+- **Nothing has run on a PS5.** The package contains the real agent, but it has
+  never been launched or installed; P2's boot criterion, TLS, DNS, `dlopen` and
+  elevated writes are all console-only and unclaimed.
 - **The console's resource envelope is unknown.** CPU count, visible memory,
-  rlimits, mount points and whether the loader permits the thread and heap
-  probes are all pending the first boot.
+  rlimits and mount points are pending the first agent run.
+- **A title launch passes no arguments.** The `eboot.bin` agent has no config,
+  prompt or key in that path yet; the ELF path with a loader that preserves argv
+  is the current way to run a turn.
 - **CI has not executed.** The workflow is committed; no remote run yet.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
@@ -244,7 +247,8 @@ Not verified or not built:
 
 ## Roadmap
 
-1. PS5 cross-build, `eboot.bin`, first boot, TLS and `dlopen` proofs (P2–P3).
-2. Manifest registry with an index and trust tiers (P5).
-3. `--serve` mode: LAN HTTP surface so a phone drives the console (P6).
-4. Elevation helper for `/data/homebrew` writes (P4).
+1. First console boot, TLS and `dlopen` proofs (P2–P3).
+2. A launch path that supplies config, prompt and the model key to the title.
+3. Manifest registry with an index and trust tiers (P5).
+4. `--serve` mode: LAN HTTP surface so a phone drives the console (P6).
+5. Elevation helper for `/data/homebrew` writes (P4).

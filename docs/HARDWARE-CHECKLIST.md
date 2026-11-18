@@ -29,21 +29,23 @@ Without them a failure cannot be reproduced.
 
 ## Build and stage
 
-The package is `.deps/ps5-build/PHAR00001/`; `platform/ps5/BUILD.md` lists the
-hashes, the SFO keys and the exact commands.
+The package is `.deps/ps5-build/PHAR00001/` and contains the real agent
+(`eboot.bin` built from `harness.elf`); `platform/ps5/BUILD.md` lists the
+hashes, dependency pins, console glue and exact commands.
 
 - [ ] Host OS, LLVM version and payload SDK version recorded.
-- [ ] `libcurl` provenance recorded (PacBrew package name and pin) when the full
-      harness is built for the target.
-- [ ] Package contains `eboot.bin`, `bringup.elf`, `sce_sys/param.sfo` and
-      `sce_sys/icon0.png`.
+- [ ] PacBrew provenance recorded (v0.41.1 bundle sha256, libcurl 8.18.0,
+      OpenSSL 3.5.2).
+- [ ] Package contains `eboot.bin`, `harness.elf`, `sce_sys/param.sfo` and
+      `sce_sys/icon0.png`; `make -C platform/ps5 bringup` is diagnostic only.
 - [ ] `make test` passed and its `ps5 package:` lines recorded (host check, not
       a boot).
 - [ ] `TITLE_ID` (default `PHAR00001`) is unique on this console, or changed in
       `platform/ps5/title.mk` and rebuilt; `param.sfo` and the folder agree.
 - [ ] Artifact staged to the console by whatever method the loader expects:
-      elfldr on 9021 (`nc -w 30 <ip> 9021 < …/bringup.elf`) or the FTP staging
-      sequence in `BUILD.md`. Record which was used.
+      elfldr on 9021 (`nc -w 30 <ip> 9021 < …/harness.elf`) or the FTP staging
+      sequence in `BUILD.md`. Record which was used, and whether argv/config/key
+      were supplied.
 
 ## P2 — Boot
 
@@ -56,20 +58,26 @@ passing package check do not satisfy any of them.
 - [ ] Log records `cpu online=… configured=…`, `mem total=… available=…`,
       `limit nofile=…`, and one `mount … free=… total=…` line per filesystem,
       plus the four `candidate` lines.
-- [ ] `threads created=N requested=N` matches the online CPUs the process was
-      allowed, or the exact failure is recorded.
-- [ ] `alloc request=33554432 ok=1`; if `0`, record that the loader caps the
-      heap below 32 MiB.
+- [ ] `budget workers=… cpu=… buffered=… file-read=…` is present. Compare
+      `workers` with the reported online CPUs; a lower value is only acceptable
+      when the fd limit explains it, and the log records the limit.
+- [ ] Record the `raised RLIMIT_NOFILE …` line, if any.
 - [ ] Exits cleanly (no hang on quit).
 - [ ] If it did not exit cleanly: the log ends with a `CRASH build=… signal=N
       (NAME) addr=0x…` line; record it verbatim, it names the fault.
 
-Log path:
+Log path (defaults, in order): `/data/ps5-harness-agent.log`,
+`/user/homebrew/ps5-harness-agent.log`, `./ps5-harness-agent.log`, or the path
+passed with `--log`. Record which one was written and whether a title launch
+received any arguments.
 
 ## P3 — Capabilities (each independent; partial results are valid)
 
 ### TLS
 - [ ] Clock verified as correct immediately before this test.
+- [ ] DNS resolves from the console (record the resolver used or the exact
+      `getaddrinfo`/curl error).
+- [ ] CA bundle found at the sandbox path or `/system/common/cert/CA_LIST.cer`.
 - [ ] HTTPS GET to a known host returns 200.
 - [ ] Certificate validation enabled (no `CURLOPT_SSL_VERIFYPEER 0` anywhere).
 - [ ] If it failed: which of clock / CA bundle / TLS version was the cause —
@@ -127,7 +135,7 @@ Log path:
 firmware:            exploit:
 build sha256:        sdk:            toolchain:
 P2 boot:             P3 tls:         P3 dlopen:
-P2 resources (cpu/mem/page/threads/alloc):
+P2 resources (cpu/mem/limits/mounts/workers/buffered):
 P3 write app/homebrew/usb:
 P4 small/1GB/resume/space/cancel/peak-mem:
 P5 external plugin:  P5 manifest:     P5 isolation:
