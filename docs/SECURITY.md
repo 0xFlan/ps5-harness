@@ -91,7 +91,28 @@ test that proves it must ship with the change.
     bundled files. Names are restricted, every path is canonicalised and must
     stay inside that skill's directory, and secret-named paths are denied.
     Loading a skill registers no tool and changes no root, URL policy, secret
-    or delegation limit. A profile cannot set `skills_dir`.
+    or delegation limit. A profile cannot set `skills_dir`. Built-in packs are
+    compiled-in first-party text, contain no executable content and are
+    overridden by a disk pack with the same name; they are not an audit of any
+    external project that shares a name.
+12. **Plan mode is enforced by the registry.** `--plan` removes `fs_write`,
+    `fs_edit`, `http_get`, `download` and all endpoint/plugin tools before any
+    model or delegated child can call them. The prompt overlay is guidance;
+    the missing tool is the control. A read-only run still uses the same
+    canonicalised roots, secret denial, deadlines and delegation depth.
+13. **Recon is read-only and bounded.** `env_info`, `fs_tree`, `file_info` and
+    `fs_strings` never write or execute a target. They use the read guard and
+    secret-name rules, cap tree entries/strings/hash size, do not follow
+    symlinks, and `env_info` omits other titles' sandbox mounts. `file_info`
+    hashes at most 64 MiB; `fs_strings` reads at most 16 MiB and returns at most
+    200 strings.
+14. **Swarms and missions cannot widen delegation.** Every lane and mission
+    step is a normal delegated child: the shared step/token pool, depth limit,
+    self-delegation check and inherited registry all still apply. Width is
+    hard-capped at 8, missions at 32 steps/8 lanes/8 KiB per task, and the
+    mission runner stops at the first failed step. A mission file composes
+    agent turns; it cannot execute shell commands or branch into an unbounded
+    loop.
 
 ## Secret handling
 
@@ -123,6 +144,7 @@ rejects both the cleartext endpoint and the flag.
 | Tier | What the user is trusting | Default |
 |---|---|---|
 | Built-in tools | This repo | On |
+| Built-in skill pack | This repo's text only; no code or network; read-only | On |
 | Skill pack | Local instructions the model may follow; read-only and path-confined | On for the configured directory |
 | Manifest | Network access to the declared host; the JSON was reviewed | Off unless a directory is passed |
 | Plugin | Arbitrary code, network, filesystem within sandbox | Off; explicit path only |
@@ -136,7 +158,10 @@ the author's own.
 
 Tool results and conversation history are sent to the model provider. That
 includes file contents the user asked to read, API responses from manifests and
-any skill instructions or bundled resources loaded with `skill`. Say so in the
+any skill instructions or bundled resources loaded with `skill`. `env_info`
+reports mount paths and resource counts, but filters other titles' sandbox
+mounts and never reads configuration or credential files; `fs_tree` marks
+denied names without reading their contents. Say so in the
 UI the first time a file is read, and keep session transcripts local with a
 clear delete path.
 

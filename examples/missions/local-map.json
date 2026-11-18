@@ -1,0 +1,29 @@
+{
+  "name": "local-map",
+  "steps": [
+    {
+      "id": "map",
+      "profile": "archivist",
+      "task": "Use env_info and fs_tree to map the read roots, mounts, writable areas and the largest executables under /data. Report exact paths and separate observed facts from inferences.",
+      "max_steps": 4,
+      "max_tokens": 400
+    },
+    {
+      "id": "lanes",
+      "swarm": [
+        {
+          "profile": "archivist",
+          "task": "Inspect the binaries under /data with file_info and fs_strings. Report format, architecture, hash and interesting embedded paths; do not execute them.",
+          "max_steps": 3,
+          "max_tokens": 300
+        },
+        {
+          "profile": "maintainer",
+          "task": "Inspect the local configuration, profiles and skills layout with fs_tree and fs_read. Report trust boundaries and secrets that must stay denied.",
+          "max_steps": 3,
+          "max_tokens": 300
+        }
+      ]
+    }
+  ]
+}

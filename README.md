@@ -10,6 +10,12 @@ The loop is the boring part. The point is the extension contract:
 - **Plugins** — a shared object exporting a stable C ABI, for anything a
   manifest can't express (pagination, auth flows, binary downloads).
 
+The harness also carries a read-only local recon surface (`env_info`,
+`fs_tree`, `file_info`, `fs_strings`), a read-only `--plan` mode, bounded
+`delegate`/`swarm` agents and JSON missions. Six clean-room skill packs are
+compiled in, so a fresh console has reverse-engineering and local-architecture
+methodology without staging anything first.
+
 ```
         ┌───────────────────────────────────────────┐
         │ agent loop (src/agent.cpp)                │
@@ -21,6 +27,9 @@ The loop is the boring part. The point is the extension contract:
         │ builtin tools (src/main)  │               │
         │ fs_list/read/write/edit,  │               │
         │ http_get, download, skill │               │
+        │ env_info, fs_tree,        │               │
+        │ file_info, fs_strings     │               │
+        │ delegate, swarm           │               │
         ├───────────────────────────┤               │
         │ endpoint manifests        │  plugins      │
         │ (src/endpoints.cpp)       │ (src/plugins) │
@@ -34,7 +43,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # policy-surface, core, resources, runtime, hardening, agents, skills, package and e2e
+make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, package and e2e
 make fuzz-run       # ASan/UBSan fuzz driver, 20k iterations each
 make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
@@ -67,7 +76,10 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 |---|---|
 | Paths canonicalised (`realpath`), symlinks resolved, `..` rejected, boundary checked with a separator | `src/paths.cpp` |
 | Reads and writes confined to configured roots; config, credentials and state denied by name | `src/paths.cpp`, `src/main.cpp` |
-| Skills are read-only instruction packs; resource paths are canonicalised and confined to the skill directory | `src/skills.cpp` |
+| Skills are read-only text packs; built-ins are compiled in and disk packs override by name; resource paths are canonicalised and confined to the skill directory | `src/skills.cpp`, `src/builtin_skills.cpp` |
+| Plan mode removes every mutating tool from the registry, including endpoint and plugin tools | `src/main.cpp` |
+| Recon tools are read-only, bounded, path-guarded and deny secret-named paths; `env_info` hides other titles' sandbox mounts | `src/recon.cpp` |
+| Swarms and missions reuse the delegation depth, shared budget and child-registry rules | `src/delegation.cpp`, `src/mission.cpp` |
 | Every tool result scrubbed of known secret values before it enters the message array | `src/secrets.cpp`, `src/agent.cpp` |
 | Manifests are https-only, host-policied, private/loopback ranges denied, DNS re-checked and pinned | `src/policy.cpp`, `src/http.cpp` |
 | Buffered responses capped at 4 MB; downloads stream to disk with Range resume and sha256 | `src/http.cpp` |
@@ -78,6 +90,13 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 `fs_write`, `fs_edit` and `download` refuse any path outside `allowed_roots`.
 `skill` refuses a name or resource outside the skills directory. Nothing
 disables TLS verification; there is no debug flag that does.
+
+Built-in skills are source text compiled into the binary, not downloaded
+content. The `astrik`, `artex`, `strix` and `cyber-strike-ai` packs are
+clean-room methodology cards, not the upstream projects: they contain no
+third-party code, binaries, scripts or network endpoints, and they cannot
+certify an external ARTEX tree. Treat those names as a description of the
+workflow, not as provenance for code that is not in this repository.
 
 ### Testing the provider round trip
 
@@ -244,6 +263,102 @@ printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agen
   | nc -w 30 <console-ip> 9021
 ```
 
+## Local reconnaissance
+
+Four read-only tools are always registered. They are the harness's own answer to
+"what machine am I on, and what is around me?"
+
+| Tool | What it reports |
+|---|---|
+| `env_info` | Build/title, platform, cwd, read/write roots, skills dir, CPUs, memory, limits, runtime budget and system mounts |
+| `fs_tree` | Bounded directory tree under the read roots, depth 1–8 (default 3), at most 500 entries; symlinks are reported, never followed; secret-named entries are marked `denied` |
+| `file_info` | Size, mode, uid/gid, mtime, sha256 (files up to 64 MiB), magic, and ELF/Mach-O/PE headers with class, machine, type and entry point |
+| `fs_strings` | Up to 200 printable ASCII strings from the first 16 MiB of a file, minimum length 4–64; it does not execute or decompile the file |
+
+All four go through the configured read roots and the same secret-name rules as
+`fs_read`. `fs_tree` does not follow a symlink out of a root, `file_info`
+canonicalises before opening, and `env_info` filters other titles'
+`/mnt/sandbox/...` mounts and caps the mount list. There is no write, delete,
+chmod, process-inspection or network call in this surface.
+
+```bash
+./build/harness --call env_info --args '{}'
+./build/harness --call fs_tree --args '{"path":".","depth":2}'
+./build/harness --call file_info --args '{"path":"build/harness"}'
+./build/harness --call fs_strings --args '{"path":"build/harness","min_length":8}'
+```
+
+## Plan mode, swarms and missions
+
+### Read-only plan mode
+
+`--plan` builds the registry without `fs_write`, `fs_edit`, `http_get`,
+`download`, endpoint tools or plugin tools, and appends a read-only planning
+instruction to the system prompt. The model can still inspect the machine and
+load skills, but a call to a missing tool is an unknown-tool error and nothing
+is created. Delegated children inherit the same read-only registry.
+
+```bash
+./build/harness --config config.example.json --plan \
+  "map the local layout and propose the next checks"
+./build/harness --plan --tools    # 9 tools: recon + read + skill + delegate/swarm
+```
+
+Plan mode is not a sandbox for a malicious plugin. It never loads endpoint or
+plugin directories, and the ordinary process permissions still apply.
+
+### Swarms
+
+The `swarm` tool runs up to eight independent child runs in parallel, preserving
+input order. Each lane is a normal delegated child: it gets the parent's
+read/write roots, URL policy, secrets, endpoints, plugins and shared
+step/token budget, and it can delegate further only within
+`delegation_max_depth`. One failed lane does not cancel the others; the merged
+result is `ok:false` if any lane failed.
+
+```json
+{"tasks":[
+  {"profile":"archivist","task":"inspect /data binaries with file_info","max_steps":3},
+  {"profile":"maintainer","task":"map configuration and mounts read-only","max_steps":3}
+]}
+```
+
+The width limit is hard. Use lanes for orthogonal surfaces, not for repeating
+the same question; the shared pool will refuse an over-sized reservation rather
+than silently serialize or overspend it.
+
+### Missions
+
+A mission is a bounded JSON sequence of steps. Each step runs a profile at
+depth 1 (so it may delegate one level further), or a swarm of lanes. The runner
+stops at the first failed step and appends a clipped summary of prior answers
+to later tasks, which gives a multi-step/multi-level run without an unbounded
+agent loop. Budgets are per step and per lane, and the whole run still uses the
+parent's `--max-steps`/`max_tokens` pool.
+
+```json
+{
+  "name": "local-map",
+  "steps": [
+    {"id": "map", "profile": "archivist", "task": "map the read roots", "max_steps": 4},
+    {"id": "lanes", "swarm": [
+      {"profile": "archivist", "task": "identify binaries", "max_steps": 3},
+      {"profile": "maintainer", "task": "map configuration", "max_steps": 3}
+    ]}
+  ]
+}
+```
+
+```bash
+./build/harness --config config.example.json --agents examples/agents \
+  --mission examples/missions/local-map.json
+```
+
+The file is capped at 512 KiB, 32 steps, 8 lanes per step and 8 KiB per task.
+There are no conditionals, loops or shell commands: a mission composes agent
+turns, not arbitrary code. `examples/missions/local-map.json` is a working
+starting point.
+
 ## Editing local files
 
 Every run gets `fs_write` and `fs_edit`, and every delegated child receives the
@@ -313,8 +428,29 @@ set `allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
 loading one registers no tool and changes no guard. The directory is read on
 every launch, so staging a pack on the console needs no rebuild.
 
-`examples/skills/` has two working packs: `console-notes` and `file-audit`
-(with a bundled `report-template.md`).
+### Built-in packs
+
+Six packs are compiled into the binary and always available, even when no
+skills directory has been staged. A disk pack with the same name overrides the
+embedded copy.
+
+| Pack | Use |
+|---|---|
+| `reverse-engineer-anything` | Static-first triage, strings, hypotheses and evidence levels for an unfamiliar artifact; it states plainly that the harness has no disassembler or debugger |
+| `local-architect` | Map mounts, executables, configuration, data flow and trust boundaries without writing |
+| `astrik` | Condensed authorized local operator method: charter, cheap probes, L1–L4 evidence, chains and cleanup |
+| `artex` | Clean-room ARTEX-style objective/surface/primitive/proof methodology; no upstream code or binaries |
+| `strix` | Parallel recon lanes and evidence merge over a bounded swarm |
+| `cyber-strike-ai` | Plan mode, mission JSON, budgets and stop conditions |
+
+These are first-party text files in `src/builtin_skills.cpp`. The names are
+compatibility shorthand for a workflow, not an audit or endorsement of any
+upstream project, and the built-ins deliberately contain no executable content.
+If you need a specific upstream ARTEX tree, audit and stage that tree yourself;
+this repository does not ship it.
+
+`examples/skills/` has two working disk packs: `console-notes` and
+`file-audit` (with a bundled `report-template.md`).
 
 ## Building for the PS5
 
@@ -362,9 +498,9 @@ do so.** It is a one-shot userland payload, not a service:
   "Loadable by elfldr on port 9021: ... arguments supplied by a file: URI."
 - `platform/ps5/BUILD.md:197` and `docs/CONSOLE-REPORT.md:36` document the only
   runnable launch path: upload the ELF, then send elfldr a `file:` URI.
-- `src/main.cpp:539` is the process entry. Every path returns: `--call` at
-  `src/main.cpp:955`, `--tools` at `src/main.cpp:960`, a missing prompt at
-  `src/main.cpp:966`, and a normal model run at `src/main.cpp:974`. There is no
+- `src/main.cpp:561` is the process entry. Every path returns: `--call` at
+  `src/main.cpp:1013`, `--tools` at `src/main.cpp:1034`, a missing prompt at
+  `src/main.cpp:1039`, and a normal model run at `src/main.cpp:1050`. There is no
   daemon loop after `main`.
 - The harness owns no listener. `src/` has no `bind(`, `listen(` or `accept(`;
   the only ones in the tree are test stubs (`tests/hardening_test.cpp:63`,
@@ -402,8 +538,8 @@ Verified on the host:
 - `make test`: policy-surface, core, resources, runtime (CPU/fd/memory/free
   space budget, parallel executor), hardening (paths, redaction, sha256,
   streaming download with resume/verify, body cap, URL policy, deadlines),
-  agent-profile and skill tests, PS5 package validation and end-to-end provider
-  suites
+  agent-profile, skill, recon and mission tests, PS5 package validation and
+  end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration fuzz runs on the JSON parser and the manifest compiler, ASan
   clean
@@ -419,11 +555,19 @@ Verified on the host:
   `--model`/`--max-steps` precedence, unknown profiles, self-delegation,
   policy-key rejection and budget exhaustion
 - **Skills and targeted edits**: `skills_test` covers frontmatter, listing,
-  bundled resources, traversal, symlink and secret-name refusal; the e2e CLI
-  test lists and loads a skill, reads its resource, edits one unique match,
-  refuses an ambiguous match, applies `replace_all`, refuses a write outside
-  the roots, and asserts that a delegated child's tool schema still carries
-  `skill` and `fs_edit`
+  bundled resources, traversal, symlink and secret-name refusal, plus the
+  embedded packs and disk-override precedence; the e2e CLI test lists and
+  loads a skill, reads its resource, edits one unique match, refuses an
+  ambiguous match, applies `replace_all`, refuses a write outside the roots,
+  and asserts that a delegated child's tool schema still carries `skill` and
+  `fs_edit`
+- **Local recon, plan mode, swarms and missions**: `recon_test` covers ELF
+  identification, capped strings, bounded trees, symlink handling, secret-name
+  denial and mount filtering; `mission_test` covers valid/invalid missions,
+  duplicate ids, width/step/budget caps and missing files. The e2e suite proves
+  plan mode sends no mutating tool schema and cannot create a file, a mission
+  runs a single step then a two-lane swarm with the first answer as context,
+  and a nine-lane swarm is refused before any child starts
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
 - **Full provider round trip** through the test build of the CLI
   (`build/harness_e2e`, same sources plus the test hook) against a local
@@ -449,7 +593,8 @@ Verified on the host:
   --resources` prints this Mac's profile
 
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
-`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`):
+`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
+recon/plan/swarm/mission `0.1.0-e0b6af4`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -480,6 +625,19 @@ Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
   returned `alpha new omega`, and a two-match edit was refused until
   `replace_all` was set. `--agent-info` printed
   `skills_dir=/data/homebrew/skills`.
+- **Recon, plan, swarm and mission** — on `0.1.0-e0b6af4`, `--tools` listed 14
+  tools with the plugin and `--plan --tools` listed 9 read-only tools; a plan
+  call to `fs_write` returned `unknown tool: fs_write` and created nothing.
+  `env_info` reported `platform=ps5`, 16 CPUs, 2291924992 visible bytes, 17
+  system mounts after filtering 1055 `/mnt/sandbox/...` entries, and the
+  configured roots/skills directory. `fs_tree /data` marked the harness config
+  and logs `denied`; `file_info /data/harness.elf` returned ELF64, x86-64,
+  `ET_DYN` and the uploaded hash; `fs_strings` returned bounded strings. All six
+  built-ins and both disk packs listed, and
+  `reverse-engineer-anything` loaded its text. A nine-lane `swarm --call` was
+  refused before spawning; a one-step mission with a missing profile parsed,
+  ran, and returned `ok:false` at step `one`. No provider key was staged, so no
+  model-driven plan, swarm or mission turn ran on hardware.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
 - **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a
@@ -510,7 +668,9 @@ Not verified or not built:
   fixed chunks and the agent hashed the full 1 GiB file in 8 KiB chunks, but no
   RSS figure was captured on the console.
 - **No model turn has run on hardware.** No provider key was available to the
-  loader; the capability checks use `--call` over the same code paths.
+  loader; the capability checks use `--call` over the same code paths. That
+  also means no model-driven plan, swarm or mission turn has run on the
+  console; the host e2e suite covers those loops against a stub.
 - **CI has not executed.** The workflow is committed; no remote run yet.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a

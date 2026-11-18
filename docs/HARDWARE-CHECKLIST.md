@@ -5,8 +5,9 @@ A phase is not complete because a build succeeded elsewhere; it is complete when
 the relevant rows below are ticked on the console.
 
 The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4, `0.1.0-4d7499f`
-for local agents, `0.1.0-c0f76b5` for delegation and `0.1.0-653d046` for skills
-and `fs_edit`, elfldr payload path) is recorded in `docs/CONSOLE-REPORT.md`: P2
+for local agents, `0.1.0-c0f76b5` for delegation, `0.1.0-653d046` for skills
+and `fs_edit`, and `0.1.0-e0b6af4` for recon/plan/swarm/missions, elfldr
+payload path) is recorded in `docs/CONSOLE-REPORT.md`: P2
 boot/resources, P3 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks,
 the local-agent list/info checks, the delegation tool/failure checks and the
 skill/edit checks are filled there; the title-install and USB rows remain open.
@@ -78,6 +79,38 @@ Log path (defaults, in order): `/data/ps5-harness-agent.log`,
 `/user/homebrew/ps5-harness-agent.log`, `./ps5-harness-agent.log`, or the path
 passed with `--log`. Record which one was written and whether a title launch
 received any arguments.
+
+## Local recon, plan, swarm and mission
+
+Run these on the same payload build. They are read-only except where noted.
+
+- [ ] Log/build line names the expected commit id and `title=PHAR00001`.
+- [ ] `--tools` includes `env_info`, `fs_tree`, `file_info`, `fs_strings`,
+      `delegate` and `swarm`.
+- [ ] `--plan --tools` has no `fs_write`, `fs_edit`, `http_get`, `download`,
+      endpoint or plugin tool; record the count (expected 9 with no endpoint
+      directory staged).
+- [ ] `--plan --call fs_write` returns `unknown tool: fs_write`, and the target
+      path does not exist afterwards.
+- [ ] `env_info` reports `platform=ps5`, the expected roots, `skills_dir`, CPU
+      count, visible memory and a bounded system-mount list. Record
+      `mounts_total`, `mounts_shown` and `sandbox_mounts_omitted`; the last two
+      should show that other titles' sandbox mounts were filtered.
+- [ ] `fs_tree` on `/data` marks `ps5-harness.json` and the harness logs as
+      `denied`, does not follow a symlink, and caps a deep tree.
+- [ ] `file_info /data/harness.elf` returns format, architecture, hash and
+      `ET_DYN`; compare the hash with the uploaded artifact.
+- [ ] `fs_strings /data/harness.elf` returns bounded strings and does not
+      execute it.
+- [ ] `skill` lists the six built-ins plus any staged packs; loading
+      `reverse-engineer-anything` returns its instructions with no resources.
+- [ ] A `swarm` call with nine lanes is refused before any child starts.
+- [ ] A one-step mission with a missing profile runs and stops at that step with
+      `ok:false`; record the step id and error.
+- [ ] With a provider key staged, run a plan prompt, a two-lane swarm and a
+      two-step mission. Record the provider/model, step counts, lane ordering
+      and whether prior-step context reached the next task. Without a key, mark
+      this row **not run** rather than inferring it from `--call`.
 
 ## P3 — Capabilities (each independent; partial results are valid)
 

@@ -14,12 +14,12 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,344,816 | `c8954690f17045f6347149a337ae995a396f0c415a7d498bb12acfbf573b172b` |
-| `harness.elf` | 9,261,680 | `6ae4672c2bdf05ecb5683e2a5a62f5030e4278159828745aa6a335ed94eb3049` |
+| `eboot.bin` | 7,549,840 | `d5770ffceac8cb825326a6854a0ba4fd7c794a30e0c0398489795ffca2997296` |
+| `harness.elf` | 9,499,552 | `8377fb70f2dd45e542eba1eb72c11282d542c04be3f9d2c3f323480b9ac9fbf5` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-653d046` (skills and `fs_edit`). The build id
+Measured from build id `0.1.0-e0b6af4` (recon, plan, swarms and missions). The build id
 embeds `VERSION` and the commit, so any commit or source change alters the two
 binaries; quote the build id, not only a hash, in a console report.
 
@@ -220,9 +220,10 @@ the environment.
 `harness.elf` is a one-shot payload, not a background service. `platform/ps5/Makefile:89`
 labels it "Loadable by elfldr on port 9021: ET_DYN, arguments supplied by a
 file: URI"; this section's launch sequence is the only runnable path. The
-process entry is `src/main.cpp:539`, and every command path returns
-(`:955` for `--call`, `:960` for `--tools`, `:966` for no prompt, `:974` for an
-agent run), so nothing survives to answer after `main` returns. There is no
+process entry is `src/main.cpp:561`, and every command path returns
+(`:1013` for `--call`, `:1010` for a mission, `:1034` for `--tools`, `:1039`
+for no prompt, `:1050` for an agent run), so nothing survives to answer after
+`main` returns. There is no
 listener in `src/` — `bind(`, `listen(` and `accept(` appear only in the two
 test stubs — and `src/http.cpp:154` is an outbound libcurl client. Ports 9021
 and 8888 are the external elfldr and file-manager processes recorded in
@@ -284,14 +285,45 @@ Both are compiled into every run, including delegated children. The default
 prompt tells the model to read before editing and to report the path from the
 tool result.
 
+### Recon, plan, swarms and missions
+
+The four recon tools are read-only and use the same `read_roots` and secret
+rules as `fs_read`. `env_info` reports the build, platform, budget and system
+mounts; it filters `/mnt/sandbox/...` entries belonging to other titles and
+caps the list. `fs_tree` is depth/entry bounded and never follows a symlink.
+`file_info` identifies ELF/Mach-O/PE headers and hashes files up to 64 MiB;
+`fs_strings` reads at most 16 MiB and returns at most 200 strings.
+
+```bash
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--call%%20env_info%%20--args%%20%%7B%%7D\n' \
+  | nc -w 30 <console-ip> 9021
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--call%%20file_info%%20--args%%20%%7B%%22path%%22%%3A%%22%%2Fdata%%2Fharness.elf%%22%%7D\n' \
+  | nc -w 30 <console-ip> 9021
+```
+
+`--plan` removes every mutating tool before the model or a child runs; it is a
+registry guarantee, not a prompt request. `swarm` runs at most eight children
+with the shared delegation budget, and `--mission` runs a bounded JSON sequence
+of steps or swarms. The example mission can be staged beside the harness:
+
+```bash
+# upload examples/missions/local-map.json to /data/local-map.json first
+printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agents%%20/data/homebrew%%20--mission%%20/data/local-map.json\n' \
+  | nc -w 900 <console-ip> 9021
+```
+
+A mission with no provider key still parses and runs its step; the first
+provider call fails, the runner returns `ok:false` at that step, and later
+steps do not run. Use that to verify the launch path without spending tokens.
+
 ### Observed on hardware
 
 The 2026-11-18 runs used the web file manager to stage files and read
 `/data/ps5-harness-agent.log`. The core checks below, including the 1 GiB
 transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`;
 the delegation checks ran on `0.1.0-c0f76b5`; the skills and edit checks ran on
-`0.1.0-653d046`. `docs/CONSOLE-REPORT.md` has the full transcript; the short
-form is:
+`0.1.0-653d046`; the recon/plan/swarm/mission checks ran on `0.1.0-e0b6af4`.
+`docs/CONSOLE-REPORT.md` has the full transcript; the short form is:
 
 | Check | Result |
 |---|---|
@@ -307,6 +339,11 @@ form is:
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
 | Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
 | Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `c0f76b5` |
+| Recon tools | 14 tools with plugin; `env_info` reported 16 CPUs and 17 system mounts after filtering 1055 sandbox mounts; `file_info` matched the uploaded `harness.elf` hash (`e0b6af4`) |
+| Plan mode | 9 read-only tools; `fs_write` absent and refused as unknown, with no file created (`e0b6af4`) |
+| Built-in skills | six compiled packs plus two staged packs listed; `reverse-engineer-anything` loaded text with no resources (`e0b6af4`) |
+| Swarm bound | nine lanes refused before any child started (`e0b6af4`) |
+| Mission runner | one-step missing-profile mission parsed, ran and stopped with `ok:false` (`e0b6af4`); no provider key for a model turn |
 | Skills and edits | 9 tools including `skill`/`fs_edit`; two packs listed, loaded and read a resource; skill traversal and outside-root edit refused; one edit replaced, a two-match edit refused (`653d046`) |
 | Title install | not tested |
 

@@ -11,24 +11,25 @@ here is still unverified.
 | Console | PS5 at `192.168.4.100` (LAN) |
 | Firmware | **not recorded** — no shell was available to query it |
 | Exploit / loader | `elfldr` listening on 9021; web file manager on 8888. Exact versions not reported by either UI. |
-| Date | 2026-11-18, ≈09:18–10:10 local |
+| Date | 2026-11-18, ≈09:18–12:05 local |
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions) |
 
-Current artifacts on disk (skills/edit build `0.1.0-653d046`):
+Current artifacts on disk (recon/plan/swarm/mission build `0.1.0-e0b6af4`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,344,816 | `c8954690f17045f6347149a337ae995a396f0c415a7d498bb12acfbf573b172b` |
-| `harness.elf` | 9,261,680 | `6ae4672c2bdf05ecb5683e2a5a62f5030e4278159828745aa6a335ed94eb3049` |
+| `eboot.bin` | 7,549,840 | `d5770ffceac8cb825326a6854a0ba4fd7c794a30e0c0398489795ffca2997296` |
+| `harness.elf` | 9,499,552 | `8377fb70f2dd45e542eba1eb72c11282d542c04be3f9d2c3f323480b9ac9fbf5` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
-`0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`.
+`0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`; the recon,
+plan, swarm and mission checks use `0.1.0-e0b6af4`.
 
 ## How it was launched
 
@@ -333,6 +334,62 @@ No provider key was staged, so the model did not choose a skill or an edit on
 hardware. The host e2e suite drives both tools through the real CLI and asserts
 that a delegated child's tool schema still contains `skill` and `fs_edit`.
 
+## Local recon, plan, swarm and mission
+
+On `0.1.0-e0b6af4`, `--tools` listed 14 tools (the seven original built-ins,
+four recon tools, `delegate`, `swarm`, and the loaded `hello_echo` plugin).
+`--plan --tools` listed 9: `fs_list`, `fs_read`, `skill`, `env_info`, `fs_tree`,
+`file_info`, `fs_strings`, `delegate`, `swarm`. No write, edit, HTTP, download,
+endpoint or plugin tool was present. A plan-mode `--call fs_write` returned
+`unknown tool: fs_write`; the requested `/data/plan-should-not-exist.txt` did
+not exist afterwards.
+
+`env_info` returned `platform: ps5`, `build: 0.1.0-e0b6af4`,
+`skills_dir: /data/homebrew/skills`, 16 online CPUs, 2,291,924,992 visible
+bytes, and a bounded mount list:
+
+```json
+"mounts_total": 1072,
+"mounts_shown": 17,
+"sandbox_mounts_omitted": 1055,
+"mounts_omitted": 0
+```
+
+`fs_tree /data` (depth 1) marked `ps5-harness.json`, the harness logs and
+`ps5-harness-edit.txt` as `denied`, without reading them. `file_info` on the
+uploaded `/data/harness.elf` returned:
+
+```json
+{"format":"elf", "ok":true, "size":9499552,
+ "sha256":"8377fb70f2dd45e542eba1eb72c11282d542c04be3f9d2c3f323480b9ac9fbf5",
+ "elf":{"class":"ELF64","machine":"x86-64","type":"ET_DYN","entry":"0x0"}}
+```
+
+The digest matches the host artifact. `fs_strings` read all 9,499,552 bytes,
+returned its capped string list and did not execute the binary. `skill` listed
+eight packs: the six built-ins plus the staged `console-notes` and
+`file-audit`; loading `reverse-engineer-anything` returned its instructions and
+an empty resource list.
+
+A nine-lane `--call swarm` was refused before any child started:
+
+```json
+{"error": "swarm width exceeds the hard limit of 8", "ok": false}
+```
+
+A one-step mission with profile `does-not-exist` parsed and ran, then stopped:
+
+```
+[harness] mission start name=probe steps=1
+[harness] mission step=one profile=does-not-exist
+[harness] delegate ! profile=does-not-exist depth=1 error=cannot load agent: cannot read /data/homebrew/does-not-exist.json
+[harness] mission <- ok=false failed=one
+```
+
+No provider key was staged, so no model-driven plan, swarm or mission turn was
+run on the console. The host e2e suite covers those loops with the real CLI,
+provider history, tool dispatch and budget accounting.
+
 ## P5 — extension contract
 
 The `hello` plugin was built outside the package with only
@@ -350,7 +407,7 @@ console's userland. The evidence is in the tree, not only in this report:
 |---|---|
 | The artifact is built for elfldr with a `file:` URI | `platform/ps5/Makefile:89`; `platform/ps5/BUILD.md:197` |
 | The console run used that path | `docs/CONSOLE-REPORT.md:36` (uploaded through the web file manager, started by `elfldr`) |
-| The harness process ends after one command or one agent run | `src/main.cpp:539` (entry); returns at `:955` (`--call`), `:960` (`--tools`), `:966` (no prompt) and `:974` (agent run) |
+| The harness process ends after one command or one agent run | `src/main.cpp:561` (entry); returns at `:1013` (`--call`), `:1034` (`--tools`),   `:1039` (no prompt) and `:1050` (agent run), plus the mission return at `:1010` |
 | The harness opens no listening socket | no `bind(`, `listen(` or `accept(` in `src/`; the only matches are test stubs (`tests/hardening_test.cpp:63`, `tests/e2e_agent_test.cpp:119`) |
 | Its HTTP path is a client, not a server | `src/http.cpp:154` (`make_http_client`, libcurl easy interface) |
 | No server mode is shipped | `docs/SECURITY.md:27` ("No listening service by default; auth if `--serve` is added"); `--serve` is only a roadmap item |
@@ -375,8 +432,10 @@ launch path and process lifetime above, not from a sleep test.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
 - A real model turn on hardware; no provider key was available to the loader.
-- A delegated parent→child model turn on hardware; the `delegate` tool and its
-  fail-closed path are console-verified, but no child provider call was made.
+- A delegated parent→child model turn, a model-driven plan, a swarm with
+  provider-backed lanes, or a multi-step mission with model turns on hardware;
+  the tools, parser, fail-closed runner and one-step failure are
+  console-verified, but no provider call was made.
 - The exact CA bundle path and resolver used.
 - Rest mode. The harness is a userland payload; it has no path to keep running
   while the console is suspended, and this build was not tested by entering

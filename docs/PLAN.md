@@ -28,10 +28,12 @@ measurement remain open.
 
 `ps5-harness` builds on macOS with `-Wall -Wextra` and no warnings. `make test`
 runs the host suites plus the PS5 package validator. Built-in tools
-(`fs_list`, `fs_read`, `fs_write`, `fs_edit`, `http_get`, `download`, `skill`),
-manifest compilation
+(`fs_list`, `fs_read`, `fs_write`, `fs_edit`, `http_get`, `download`, `skill`,
+the four read-only recon tools, `delegate` and `swarm`), manifest compilation
 (`examples/endpoints/archive.json` → 3 tools), and a `.so` plugin loading
-through the C ABI all work. One live HTTPS call to
+through the C ABI all work. `--plan` builds a read-only registry; JSON
+missions compose sequential profile turns and bounded swarms; six
+clean-room text skill packs are compiled in. One live HTTPS call to
 `archive.org/advancedsearch.php` returned real records. Local agent profiles
 (`--agent`, `--list-agents`, `--agent-info`) load prompt and model overrides
 from JSON files on disk; editing a profile changes the next run without a
@@ -221,7 +223,10 @@ skill registers no tool and cannot change roots, URL policy, secrets,
 same tools. Console-verified on `0.1.0-653d046`: two staged packs listed and
 loaded, a bundled resource read back, a parent-directory resource was refused,
 and `fs_edit` changed one unique match while refusing an ambiguous one and a
-write outside the roots.
+write outside the roots. Six packs are also compiled in:
+`reverse-engineer-anything`, `local-architect`, `astrik`, `artex`, `strix` and
+`cyber-strike-ai`. They are text-only; the ARTEX/Strix/CyberStrike names are
+methodology shorthands, not vendored upstream code.
 
 The delegation extension exposes a `delegate(profile, task)` tool. The child
 receives a copy of the parent's tools, so the parent's `PathGuard`, URL policy,
@@ -233,6 +238,27 @@ provider round trip, inherited-root refusal, depth and budget limits, flag
 precedence and unknown/self profiles. Console-verified on `0.1.0-c0f76b5`: the
 build id, `delegate` in `--tools`, both profile commands, and a missing-profile
 refusal; no provider key was staged for an on-console child turn.
+
+### Local recon, plan mode, swarms and missions
+
+The recon surface is four read-only tools: `env_info` (build, platform, roots,
+resources, filtered system mounts), `fs_tree` (bounded, symlinks reported not
+followed, secret names denied), `file_info` (ELF/Mach-O/PE headers and sha256)
+and `fs_strings` (bounded). They are path-guarded and never write or execute a
+target. `recon_test` covers the formats, caps, symlinks and mount filtering.
+
+`--plan` removes the mutating tools from the registry and appends a read-only
+planning instruction; endpoint and plugin directories are not loaded. The
+`swarm` tool runs up to eight orthogonal children in parallel under the same
+delegation rules. `--mission <file>` runs up to 32 sequential steps, each a
+profile turn or a swarm, with per-step budgets and prior answers as clipped
+context; it stops at the first failure. Host e2e proves plan mode cannot create
+a file, a mission runs a single step and a two-lane swarm with context, and a
+nine-lane swarm is refused before any child starts. On `0.1.0-e0b6af4` the
+console listed 14 tools (9 under `--plan`), refused a plan-mode `fs_write` and
+created nothing, returned the ELF identity and sha256 of the uploaded harness,
+loaded the built-in packs, refused a nine-lane swarm, and ran a one-step mission
+to a missing-profile failure. No provider key was staged for a model turn.
 
 ## P6 — User experience
 
@@ -269,6 +295,8 @@ and the support matrix names the exact firmware and exploit toolchain tested.
 | D9 | Fuzz targets build a libFuzzer-free driver by default | Apple clang ships no libFuzzer runtime; CI must fuzz on both runners | If CI moves to Linux-only |
 | D10 | Static PacBrew libcurl/OpenSSL + console glue for the agent | The payload SDK libc supplies the resolver/libc symbols; the console still needs the CA path, `SO_NBIO` and the `fcntl` wrapper | If a firmware needs a different TLS backend |
 | D11 | Runtime budget derived from the resource probe | Fixed host caps left console cores and memory idle; the probe gives the real envelope | If a measured backend constraint disappears |
+| D12 | Built-in skills are compiled-in first-party text | A fresh console gets RE/local-recon method without staging an unverifiable third-party tree; disk packs still override | If a signed pack format is added |
+| D13 | Plan mode is a registry filter, not a prompt request | A prompt can be ignored by a model or injected content; absent tools cannot be called | Never weaken; add a new tool only with a read-only implementation |
 
 ## Open questions (answer before the phase that needs them)
 
