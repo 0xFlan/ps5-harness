@@ -232,17 +232,15 @@ the environment.
 
 ### Rest mode
 
-`harness.elf` is a one-shot payload, not a background service. `platform/ps5/Makefile:89`
+`harness.elf` is a payload, not a background service. `platform/ps5/Makefile`
 labels it "Loadable by elfldr on port 9021: ET_DYN, arguments supplied by a
 file: URI"; this section's launch sequence is the only runnable path. The
-process entry is `src/main.cpp:561`, and every command path returns
-(`:1013` for `--call`, `:1010` for a mission, `:1034` for `--tools`, `:1039`
-for no prompt, `:1050` for an agent run), so nothing survives to answer after
-`main` returns. There is no
-listener in `src/` — `bind(`, `listen(` and `accept(` appear only in the two
-test stubs — and `src/http.cpp:154` is an outbound libcurl client. Ports 9021
-and 8888 are the external elfldr and file-manager processes recorded in
-`docs/CONSOLE-REPORT.md:13`.
+process entry is `src/main.cpp`; every command path returns except the explicit
+`--serve` browser mode, which blocks while its LAN listener is open. That mode
+still starts only after a human launches `harness.elf` with `--serve`; it is not
+started by the title path or by rest mode. `src/http.cpp` remains an outbound
+libcurl client. Ports 9021 and 8888 are the external elfldr and file-manager
+processes recorded in `docs/CONSOLE-REPORT.md:13`.
 
 Rest mode stops that userland, so the harness, elfldr and the file manager are
 not there to serve. The only path to work happening while the console sleeps is
@@ -355,7 +353,7 @@ the delegation checks ran on `0.1.0-c0f76b5`; the skills and edit checks ran on
 | Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
 | Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `c0f76b5` |
 | Recon tools | 14 tools with plugin; `env_info` reported 16 CPUs and 17 system mounts after filtering 1055 sandbox mounts; `file_info` matched the uploaded `harness.elf` hash (`e0b6af4`) |
-| Plan mode | 9 read-only tools; `fs_write` absent and refused as unknown, with no file created (`e0b6af4`) |
+| Plan mode | 9 read-only tools at the time; `fs_write` absent and refused as unknown, with no file created (`e0b6af4`; the current tree has 12 read-only tools) |
 | Built-in skills | six compiled packs plus two staged packs listed; `reverse-engineer-anything` loaded text with no resources (`e0b6af4`) |
 | Swarm bound | nine lanes refused before any child started (`e0b6af4`) |
 | Mission runner | one-step missing-profile mission parsed, ran and stopped with `ok:false` (`e0b6af4`); no provider key for a model turn |
@@ -391,8 +389,10 @@ curl -T .deps/ps5-build/PHAR00001/sce_sys/icon0.png ftp://$PS5_HOST:2121/user/ap
 - That a delegated model turn runs on hardware. The tool and failure path are
   console-verified, but no provider key was staged for a child run.
 - That USB writes work; no USB device was present.
-- That peak memory stays flat during a 1 GB transfer; the code streams, but no
-  RSS figure was captured.
+- That the browser workspace works from the console runtime: `--serve`,
+  token authentication, the LAN listener, session persistence and a model turn
+  through the UI are host-tested and cross-built but have not been run on the
+  PS5. The new power tools and `sysctl` have not been run on hardware either.
 - That the exact `CA_LIST.cer` path and resolver used are the intended ones;
   TLS succeeded and a bad certificate failed, but the path is not logged.
 

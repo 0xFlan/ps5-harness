@@ -3,10 +3,12 @@
 #include <unistd.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -21,9 +23,12 @@
 #include "ps5h/plugins.h"
 #include "ps5h/recon.h"
 #include "ps5h/policy.h"
+#include "ps5h/power_tools.h"
 #include "ps5h/resources.h"
 #include "ps5h/runtime.h"
 #include "ps5h/secrets.h"
+#include "ps5h/server.h"
+#include "ps5h/session.h"
 #include "ps5h/skills.h"
 
 #ifndef PS5H_BUILD_ID
@@ -51,6 +56,27 @@ int bounded_json_int(double value, int fallback, int minimum, int maximum) {
   return static_cast<int>(value);
 }
 
+std::string random_token() {
+  unsigned char bytes[16] = {};
+  bool filled = false;
+  FILE* random = std::fopen("/dev/urandom", "rb");
+  if (random != nullptr) {
+    filled = std::fread(bytes, 1, sizeof bytes, random) == sizeof bytes;
+    std::fclose(random);
+  }
+  if (!filled) {
+    std::random_device device;
+    for (std::size_t i = 0; i < sizeof bytes; ++i) {
+      bytes[i] = static_cast<unsigned char>(device() & 0xffu);
+    }
+  }
+  char token[33] = {};
+  for (std::size_t i = 0; i < sizeof bytes; ++i) {
+    std::snprintf(token + i * 2, 3, "%02x", bytes[i]);
+  }
+  return std::string(token);
+}
+
 std::string add_plan_mode_prompt(const std::string& base) {
   return base +
          "\n\nPLAN MODE (read-only):\n"
@@ -65,7 +91,8 @@ std::string add_plan_mode_prompt(const std::string& base) {
 }
 
 bool is_mutating_tool(const std::string& name) {
-  return name == "fs_write" || name == "fs_edit" || name == "http_get" ||
+  return name == "fs_write" || name == "fs_edit" || name == "fs_mkdir" ||
+         name == "fs_move" || name == "fs_delete" || name == "http_get" ||
          name == "download";
 }
 
@@ -557,6 +584,11 @@ void print_usage() {
       "  --max-depth <n>      Maximum delegate nesting depth (default 2, 0 disables)\n"
       "  --plan               Read-only planning mode (no writes, edits, downloads or HTTP)\n"
       "  --mission <file>     Run a bounded JSON mission (sequential steps and/or swarms)\n"
+      "  --serve <port>       Serve the browser chat UI and tool API on the LAN\n"
+      "  --ui                 Alias for --serve 8787\n"
+      "  --serve-token <tok>  Fixed bearer token for --serve (generated if omitted)\n"
+      "  --session <file>     Persist the browser conversation to this JSON file\n"
+      "  --context-chars <n>  Transcript budget before compaction (default 120000)\n"
       "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
       "  --log <file>         Append diagnostics to a file (console default: /data/ps5-harness-agent.log)\n"
       "  --help               This message\n\n"
@@ -600,7 +632,12 @@ int main(int argc, char** argv) {
   bool agent_info = false;
   bool system_prompt_from_config = false;
   bool plan_mode = false;
+  bool serve = false;
   std::string mission_path;
+  int serve_port = 8787;
+  std::string serve_token;
+  std::string session_path;
+  std::size_t context_chars = 120000;
   int max_steps = 12;
   bool max_steps_from_flag = false;
   int max_delegation_depth = 2;
@@ -664,6 +701,20 @@ int main(int argc, char** argv) {
       plan_mode = true;
     } else if (arg == "--mission") {
       mission_path = next("--mission");
+    } else if (arg == "--serve") {
+      serve = true;
+      serve_port = std::atoi(next("--serve").c_str());
+    } else if (arg == "--serve-token") {
+      serve_token = next("--serve-token");
+    } else if (arg == "--session") {
+      session_path = next("--session");
+    } else if (arg == "--context-chars") {
+      context_chars = static_cast<std::size_t>(std::strtoul(
+          next("--context-chars").c_str(), nullptr, 10));
+    } else if (arg == "--ui") {
+      // Friendly alias for the common LAN port.
+      serve = true;
+      serve_port = 8787;
 #if defined(PS5H_TEST_HOOKS)
     } else if (arg == "--test-allow-loopback-cleartext") {
       policy = UrlPolicy::test_only_loopback_policy();
@@ -709,7 +760,22 @@ int main(int argc, char** argv) {
       std::fflush(log_file);
     }
   };
-  LogFn say = [](const std::string& message) { std::printf("%s\n", message.c_str()); };
+  auto activity = std::make_shared<ActivityLog>();
+  LogFn runtime_log = log;
+  if (serve) {
+    runtime_log = [activity, log](const std::string& message) {
+      activity->add(message);
+      log(message);
+    };
+  }
+  LogFn say = [serve](const std::string& message) {
+    if (!serve) {
+      std::printf("%s\n", message.c_str());
+    }
+  };
+  if (serve && serve_token.empty()) {
+    serve_token = random_token();
+  }
   EnvFn env = [](const std::string& name) -> std::string {
     const char* value = std::getenv(name.c_str());
     return value != nullptr ? value : std::string();
@@ -845,6 +911,22 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "--plan and --mission are mutually exclusive\n");
     return 2;
   }
+  if (serve && (!mission_path.empty() || !call_tool.empty())) {
+    std::fprintf(stderr, "--serve cannot be combined with --mission or --call\n");
+    return 2;
+  }
+  if (serve && (serve_port < 1 || serve_port > 65535)) {
+    std::fprintf(stderr, "--serve port must be between 1 and 65535\n");
+    return 2;
+  }
+  if (context_chars < 4096 || context_chars > 4000000) {
+    std::fprintf(stderr, "--context-chars must be between 4096 and 4000000\n");
+    return 2;
+  }
+  if (!serve_token.empty() && serve_token.size() < 16) {
+    std::fprintf(stderr, "--serve-token must be at least 16 characters\n");
+    return 2;
+  }
   if (plan_mode) {
     system_prompt = add_plan_mode_prompt(system_prompt);
   }
@@ -952,7 +1034,7 @@ int main(int argc, char** argv) {
   context.http = http;
   context.download = download;
   context.policy = policy;
-  context.log = log;
+  context.log = runtime_log;
   context.max_file_read = budget.file_read_bytes;
   context.max_http_body = budget.buffered_response_bytes;
   context.max_tool_output = budget.tool_output_bytes;
@@ -970,6 +1052,13 @@ int main(int argc, char** argv) {
   recon.read_roots = read_guard.roots();
   recon.skills_dir = skills_dir;
   register_recon_tools(registry, recon);
+
+  PowerToolContext power;
+  power.read_guard = read_guard;
+  power.write_guard = write_guard;
+  power.max_tool_output = budget.tool_output_bytes;
+  power.log = runtime_log;
+  register_power_tools(registry, power);
 
   if (plan_mode) {
     ToolRegistry read_only;
@@ -1002,7 +1091,7 @@ int main(int argc, char** argv) {
   delegation.model = config;
   delegation.http = http;
   delegation.env = env;
-  delegation.log = log;
+  delegation.log = runtime_log;
   delegation.policy = policy;
   delegation.secrets = secrets;
   delegation.budget = budget;
@@ -1053,6 +1142,61 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (serve) {
+    if (session_path.empty()) {
+      session_path = write_guard.roots().front() + "/ps5h-session.json";
+    }
+    if (!write_guard.allows(session_path)) {
+      std::fprintf(stderr, "session path is outside the write roots: %s\n",
+                   session_path.c_str());
+      return 2;
+    }
+    if (looks_secret(session_path)) {
+      std::fprintf(stderr, "session path is denied by the secret-name policy\n");
+      return 2;
+    }
+
+    ChatSession session;
+    session.context_chars = context_chars;
+    std::string session_error;
+    const bool session_exists = access(session_path.c_str(), F_OK) == 0;
+    if (!session.load(session_path, system_prompt, &session_error)) {
+      if (session_exists) {
+        runtime_log("session load failed; starting fresh: " + session_error);
+      }
+      session.reset(system_prompt);
+    } else if (session_exists) {
+      runtime_log("resumed session with " +
+                  std::to_string(session.message_count()) + " messages");
+    }
+
+    // The current process's prompt (including the plan-mode overlay) wins over
+    // an older persisted prompt. Otherwise a session started in full mode could
+    // silently retain write-capable instructions after `--plan --serve`.
+    const std::string active_prompt = system_prompt;
+    session.system_prompt = active_prompt;
+    if (session.messages.size() > 0) {
+      session.messages[0]["content"] = active_prompt;
+    }
+
+    AgentOptions options;
+    options.max_steps = max_steps;
+    options.system_prompt = active_prompt;
+
+    Agent agent(config, http, registry, env, runtime_log, say, policy, secrets,
+                budget);
+    ServerOptions server;
+    server.port = serve_port;
+    server.token = serve_token;
+    server.session_path = session_path;
+    server.build_id = PS5H_BUILD_ID;
+    server.model = config.model;
+    server.plan_mode = plan_mode;
+    server.context_chars = context_chars;
+    return run_server(server, agent, session, options, registry, *activity,
+                      runtime_log);
+  }
+
   if (prompt.empty()) {
     log("no prompt supplied; usage printed");
     print_usage();
@@ -1063,6 +1207,7 @@ int main(int argc, char** argv) {
   options.max_steps = max_steps;
   options.system_prompt = system_prompt;
 
-  Agent agent(config, http, registry, env, log, say, policy, secrets, budget);
+  Agent agent(config, http, registry, env, runtime_log, say, policy, secrets,
+              budget);
   return agent.run(prompt, options) ? 0 : 1;
 }

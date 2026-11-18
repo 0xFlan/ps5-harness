@@ -10,11 +10,14 @@ The loop is the boring part. The point is the extension contract:
 - **Plugins** — a shared object exporting a stable C ABI, for anything a
   manifest can't express (pagination, auth flows, binary downloads).
 
-The harness also carries a read-only local recon surface (`env_info`,
-`fs_tree`, `file_info`, `fs_strings`), a read-only `--plan` mode, bounded
-`delegate`/`swarm` agents and JSON missions. Six clean-room skill packs are
-compiled in, so a fresh console has reverse-engineering and local-architecture
-methodology without staging anything first.
+The harness also carries a local recon surface (`env_info`, `fs_tree`,
+`file_info`, `fs_strings`), guarded write and process-inspection tools, a
+read-only `--plan` mode, bounded `delegate`/`swarm` agents and JSON missions.
+Six clean-room skill packs are compiled in, so a fresh console has
+reverse-engineering and local-architecture methodology without staging
+anything first. `--serve` adds an optional LAN browser workspace with a chat
+transcript, live tool/activity panel, tool catalogue, persistent sessions and
+model-assisted context compaction.
 
 ```
         ┌───────────────────────────────────────────┐
@@ -26,10 +29,12 @@ methodology without staging anything first.
         ┌───────────────┴───────────┬───────────────┐
         │ builtin tools (src/main)  │               │
         │ fs_list/read/write/edit,  │               │
+        │ fs_mkdir/move/delete,     │               │
+        │ fs_search, hexdump,       │               │
         │ http_get, download, skill │               │
         │ env_info, fs_tree,        │               │
-        │ file_info, fs_strings     │               │
-        │ delegate, swarm           │               │
+        │ file_info, fs_strings,    │               │
+        │ sysctl, delegate, swarm   │               │
         ├───────────────────────────┤               │
         │ endpoint manifests        │  plugins      │
         │ (src/endpoints.cpp)       │ (src/plugins) │
@@ -43,7 +48,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, package and e2e
+make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, session, tools, server, package and e2e
 make fuzz-run       # ASan/UBSan: JSON, manifest, recon and mission fuzzers, 20k iterations each
 make sanitize-test  # recon and mission host tests under ASan/UBSan
 make leaks-check    # macOS system leak check on the plain recon/mission fuzz drivers
@@ -51,6 +56,20 @@ make plugin-example # build the example plugin
 make tools          # list built-in + manifest tools
 ./build/harness --resources   # CPUs, memory, rlimits and mount space
 ```
+
+Start the browser workspace (the token is printed once; the page itself is
+served without it so it can render the login prompt):
+
+```bash
+./build/harness --config config.example.json --serve 8787
+# open http://<console-or-host-ip>:8787/?token=<printed-token>
+```
+
+`--serve-token <16+ chars>` fixes the token, `--session <path>` overrides the
+session file (default: `<first write root>/ps5h-session.json`), and
+`--context-chars <n>` sets the transcript budget (default 120000 characters,
+minimum 4096). The UI is an opt-in mode; without `--serve` the binary still
+does one turn and exits.
 
 Talk to a model (key comes from the environment, never the config file):
 
@@ -88,6 +107,8 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 | Every tool call has a deadline (30 s default, per-tool override) | `src/core.cpp` |
 | Plugin results go into a **host-owned** buffer — nothing is freed across the ABI | `include/ps5h/plugin_api.h` |
 | The model endpoint is policy-checked too — the API key never travels over cleartext or to a private address | `src/agent.cpp` |
+| Browser listener is off unless `--serve` is explicit; every `/api/*` call requires the bearer token; one turn runs at a time; no cookies, CORS or wildcard origins | `src/server.cpp` |
+| Session files stay under the write roots and are rejected if their names look secret-bearing | `src/main.cpp`, `src/paths.cpp` |
 
 `fs_write`, `fs_edit` and `download` refuse any path outside `allowed_roots`.
 `skill` refuses a name or resource outside the skills directory. Nothing
@@ -267,8 +288,8 @@ printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agen
 
 ## Local reconnaissance
 
-Four read-only tools are always registered. They are the harness's own answer to
-"what machine am I on, and what is around me?"
+Four read-only recon tools are always registered. They are the harness's own
+answer to "what machine am I on, and what is around me?"
 
 | Tool | What it reports |
 |---|---|
@@ -280,8 +301,8 @@ Four read-only tools are always registered. They are the harness's own answer to
 All four go through the configured read roots and the same secret-name rules as
 `fs_read`. `fs_tree` does not follow a symlink out of a root, `file_info`
 canonicalises before opening, and `env_info` filters other titles'
-`/mnt/sandbox/...` mounts and caps the mount list. There is no write, delete,
-chmod, process-inspection or network call in this surface.
+`/mnt/sandbox/...` mounts and caps the mount list. The recon surface itself does
+not write or chmod; the separate power tools below do, under the write guard.
 
 ```bash
 ./build/harness --call env_info --args '{}'
@@ -290,12 +311,48 @@ chmod, process-inspection or network call in this surface.
 ./build/harness --call fs_strings --args '{"path":"build/harness","min_length":8}'
 ```
 
+## Power tools and the browser workspace
+
+The default registry is not read-only. It already contains `fs_write`,
+`fs_edit`, `http_get`, `download`, endpoint/plugin tools and delegation. The
+power surface adds guarded primitives so an investigation can create a working
+tree, rename evidence, search it and inspect raw bytes without dropping to a
+shell:
+
+| Tool | What it does |
+|---|---|
+| `fs_mkdir` | Creates one directory under the write roots; parent must exist |
+| `fs_move` | Renames/moves inside the write roots; refuses overwrite unless `overwrite=true`; never splits cross-device moves |
+| `fs_delete` | Deletes one file or one empty directory; never recursive; symlinks are unlinked, not followed |
+| `fs_search` | Literal text search with bounded recursion, files, bytes, depth and result count; returns `path:line:column` evidence |
+| `hexdump` | Bounded hex + ASCII view of a file range for headers, tables and opaque structures |
+| `sysctl` | Allows `kern.*`, `hw.*`, `vm.*`, `net.*`, `machdep.*` and `dev.*` reads; argument/env/credential/key/token/secret names are denied |
+
+Every path still goes through the same canonicalisation and write guard as
+`fs_write`; secret-named paths (including `.env`) stay denied. `--plan` removes
+the mutating tools from the registry rather than relying on the prompt.
+
+`--serve` is the workspace shell: a dark three-panel page served by the harness
+itself. The left rail starts/reset sessions; the centre is a persistent chat with
+user/assistant turns and a composer; the right inspector shows live tool activity
+and the registered tool catalogue, plus context, message, compaction, token and
+step counters. The page is dependency-free (no CDN or web fonts), works on a
+phone on the same LAN, and stores the transcript locally. History is saved after
+every turn, loaded on restart, and compacted only when the approximate transcript
+budget is exceeded; the newest turns are kept verbatim.
+
+```bash
+./build/harness --config config.example.json --serve 8787 \
+  --session /data/ps5h-session.json
+```
+
 ## Plan mode, swarms and missions
 
 ### Read-only plan mode
 
-`--plan` builds the registry without `fs_write`, `fs_edit`, `http_get`,
-`download`, endpoint tools or plugin tools, and appends a read-only planning
+`--plan` builds the registry without `fs_write`, `fs_edit`, `fs_mkdir`,
+`fs_move`, `fs_delete`, `http_get`, `download`, endpoint tools or plugin tools,
+and appends a read-only planning
 instruction to the system prompt. The model can still inspect the machine and
 load skills, but a call to a missing tool is an unknown-tool error and nothing
 is created. Delegated children inherit the same read-only registry.
@@ -303,7 +360,7 @@ is created. Delegated children inherit the same read-only registry.
 ```bash
 ./build/harness --config config.example.json --plan \
   "map the local layout and propose the next checks"
-./build/harness --plan --tools    # 9 tools: recon + read + skill + delegate/swarm
+./build/harness --plan --tools    # 12 tools: recon + read + search/hexdump/sysctl + skill + delegate/swarm
 ```
 
 Plan mode is not a sandbox for a malicious plugin. It never loads endpoint or
@@ -494,24 +551,23 @@ PacBrew pins, artifact hashes, the shims and the console commands.
 ### Rest mode
 
 **No. The harness cannot run in rest mode, and this build has no path to make it
-do so.** It is a one-shot userland payload, not a service:
+do so.** It is a userland payload, not a background service:
 
-- `platform/ps5/Makefile:89` builds `harness.elf` as an ET_DYN payload
-  "Loadable by elfldr on port 9021: ... arguments supplied by a file: URI."
-- `platform/ps5/BUILD.md:197` and `docs/CONSOLE-REPORT.md:36` document the only
-  runnable launch path: upload the ELF, then send elfldr a `file:` URI.
-- `src/main.cpp:561` is the process entry. Every path returns: `--call` at
-  `src/main.cpp:1013`, `--tools` at `src/main.cpp:1034`, a missing prompt at
-  `src/main.cpp:1039`, and a normal model run at `src/main.cpp:1050`. There is no
-  daemon loop after `main`.
-- The harness owns no listener. `src/` has no `bind(`, `listen(` or `accept(`;
-  the only ones in the tree are test stubs (`tests/hardening_test.cpp:63`,
-  `tests/e2e_agent_test.cpp:119`). `src/http.cpp:154` is an outbound libcurl
-  client, and `docs/SECURITY.md:27` records "no listening service by default".
+- `platform/ps5/Makefile` builds `harness.elf` as an ET_DYN payload loadable by
+  elfldr on port 9021; arguments still come from a `file:` URI.
+- `src/main.cpp` is the process entry. `--call`, `--tools`, `--resources`, a
+  normal prompt and `--plan` all return. Only `--serve` stays alive, and only
+  because the user explicitly launched a LAN listener; it is not started by the
+  title path or by rest mode.
+- The listener is `src/server.cpp` (`bind`, `listen`, `accept`), disabled by
+  default and reachable only with the printed bearer token. `src/http.cpp` is
+  still the outbound libcurl client. `docs/SECURITY.md` records the listener
+  rule and the token boundary.
 - Ports 9021 (elfldr) and 8888 (web file manager) are separate userland
-  processes, not servers started by the harness (`docs/CONSOLE-REPORT.md:13`).
-  Suspend stops the console's userland, so those processes and the harness are
-  not there to answer. Nothing in this repo asks the OS to keep them alive.
+  processes, not servers started implicitly by the harness
+  (`docs/CONSOLE-REPORT.md:13`). Suspend stops the console's userland, so those
+  processes and the harness are not there to answer. Nothing in this repo asks
+  the OS to keep them alive.
 
 A suspended console therefore has no `harness` process to receive a tool call,
 load a skill, edit a file or make a model turn. The only workable path for work
@@ -540,8 +596,8 @@ Verified on the host:
 - `make test`: policy-surface, core, resources, runtime (CPU/fd/memory/free
   space budget, parallel executor), hardening (paths, redaction, sha256,
   streaming download with resume/verify, body cap, URL policy, deadlines),
-  agent-profile, skill, recon and mission tests, PS5 package validation and
-  end-to-end provider suites
+  agent-profile, skill, recon, mission, session/compaction, power-tool and
+  browser-server tests, PS5 package validation and end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration ASan/UBSan fuzz runs on the JSON parser, manifest compiler,
   recon header/string/tree surface and mission parser; the recon and mission
@@ -584,9 +640,14 @@ Verified on the host:
   recovers from; the tool deadline returns without waiting for the abandoned
   handler
 - **Real agent cross-build**: `make -C platform/ps5` compiles all `src/*.cpp`
-  plus the console glue, links PacBrew libcurl/OpenSSL, and emits a PIE
-  `harness.elf` for elfldr plus a fake-SELF `eboot.bin` from a separate non-PIE
-  link (SDK v0.45, LLVM 23.1.4 on macOS)
+  (including the browser server, session, power tools and embedded UI) plus the
+  console glue, links PacBrew libcurl/OpenSSL, and emits a PIE `harness.elf` for
+  elfldr plus a fake-SELF `eboot.bin` from a separate non-PIE link (SDK v0.45,
+  LLVM 23.1.4 on macOS). The SDK wrapper needs the host LLVM tools on `PATH`
+  (for example `PATH=/opt/homebrew/opt/llvm/bin:$PATH`).
+- **Browser workspace**: the token-auth server, static page, state/history
+  routes, a full stub-backed turn, transcript persistence across restart and
+  context compaction are covered by host tests and a live loopback smoke test
 - **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
   disk, checks the fSELF magic and the agent ELF header, and passes on the
   package above
@@ -601,8 +662,14 @@ Verified on the host:
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
 recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
-`0.1.0-e6b6205`):
+`0.1.0-e6b6205`, browser listener `0.1.0-c2c533f`):
 
+- **Browser workspace** — on `0.1.0-c2c533f`, `--serve 8789` returned the
+  24 KiB UI page (`200`), rejected an unauthenticated `/api/state` (`401`), and
+  the authenticated state listed all 20 tools including `fs_search`, `hexdump`
+  and `sysctl`. `--call sysctl --args '{"name":"hw.ncpu"}'` returned `16` on
+  the console. No provider key was staged, so the UI's model turn was not run
+  there, and no browser was opened against the console page.
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
   CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
@@ -633,7 +700,8 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
   `replace_all` was set. `--agent-info` printed
   `skills_dir=/data/homebrew/skills`.
 - **Recon, plan, swarm and mission** — on `0.1.0-e0b6af4`, `--tools` listed 14
-  tools with the plugin and `--plan --tools` listed 9 read-only tools; a plan
+  tools with the plugin and `--plan --tools` listed 9 read-only tools (the
+  current tree has six more built-ins and 12 read-only tools); a plan
   call to `fs_write` returned `unknown tool: fs_write` and created nothing.
   `env_info` reported `platform=ps5`, 16 CPUs, 2291924992 visible bytes, 17
   system mounts after filtering 1055 `/mnt/sandbox/...` entries, and the
@@ -685,8 +753,12 @@ Not verified or not built:
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.
-- **No graphical on-console UI.** CLI and `--call` only; the shell-facing
-  surface is the generated `icon0.png` tile and the title metadata.
+- **Browser workspace has no console model turn yet.** The page, auth gate,
+  tool catalogue and `sysctl` were checked on the console, but no browser was
+  opened against it, the phone layout was not inspected on hardware, and no
+  provider key was staged for a chat turn. Session-file persistence on the
+  console is likewise unverified. There is still no native on-console window;
+  `icon0.png` and the title metadata are the shell-facing surface.
 - **No elevation helper**, so writes reach only what the process can already
   open.
 
@@ -695,5 +767,7 @@ Not verified or not built:
 1. First console boot, TLS and `dlopen` proofs (P2–P3).
 2. A launch path that supplies config, prompt and the model key to the title.
 3. Manifest registry with an index and trust tiers (P5).
-4. `--serve` mode: LAN HTTP surface so a phone drives the console (P6).
+4. Console-side browser workspace validation: launch `--serve`, bind the LAN
+   address from the payload, persist a session under `/data`, and drive one
+   model turn from a phone. (P6)
 5. Elevation helper for `/data/homebrew` writes (P4).

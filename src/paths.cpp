@@ -100,10 +100,10 @@ bool PathGuard::allows(const std::string& target) const {
 }
 
 bool looks_secret(const std::string& canonical_path) {
-  static const char* kDenied[] = {"config.json",  "state.db", "logs",
-                                  "secrets",      "token",    "credential",
-                                  "credentials",  ".ssh",     "auth.json",
-                                  "id_rsa",       "id_ed25519",
+  static const char* kDenied[] = {"config.json",  "state.db", ".env",
+                                  "logs",         "secrets",  "token",
+                                  "credential",   "credentials", ".ssh",
+                                  "auth.json",    "id_rsa",   "id_ed25519",
                                   "ps5-harness"};
   std::string lower;
   lower.reserve(canonical_path.size());

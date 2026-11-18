@@ -14,7 +14,7 @@ measurement remain open.
 | P3 Capabilities | Done for the payload path — TLS (200, bad cert rejected), `dlopen` and writes to `/data`, `/data/homebrew` and `/user` observed 2026-11-18; USB was absent. |
 | P4 Tool surface | Mostly done — resume returned 206 with a matching digest and the free-space cap fired on a 2 MiB mount; 1 GB and peak RSS tracked below. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
-| P6 UX | Not started. |
+| P6 UX | Partial — opt-in LAN browser workspace with persistent sessions, live activity/tool panels and compaction is shipped and host-tested; not yet exercised from the PS5 runtime. Native on-console UI remains open. |
 | P7 Audit + release | Partial — threat model, fuzz, ASan and the provider round trip done; hardware audit and release engineering pending. |
 
 | Document | Purpose |
@@ -255,19 +255,26 @@ profile turn or a swarm, with per-step budgets and prior answers as clipped
 context; it stops at the first failure. Host e2e proves plan mode cannot create
 a file, a mission runs a single step and a two-lane swarm with context, and a
 nine-lane swarm is refused before any child starts. On `0.1.0-e0b6af4` the
-console listed 14 tools (9 under `--plan`), refused a plan-mode `fs_write` and
-created nothing, returned the ELF identity and sha256 of the uploaded harness,
-loaded the built-in packs, refused a nine-lane swarm, and ran a one-step mission
-to a missing-profile failure. No provider key was staged for a model turn.
+console listed 14 tools, refused a plan-mode `fs_write` and created nothing,
+returned the ELF identity and sha256 of the uploaded harness, loaded the
+built-in packs, refused a nine-lane swarm, and ran a one-step mission to a
+missing-profile failure. No provider key was staged for a model turn. The
+current tree adds six power tools and a 12-tool plan-mode registry; the host
+suite covers them, but the console has not run the new surface yet.
 
 ## P6 — User experience
 
-Choose one surface first: a LAN HTTP API driven from a phone, or an on-console
-UI in the ProsperoStore mold. The LAN surface is a week; the native UI is a
-month and needs input, focus, text entry and streaming rendering.
+The first surface is shipped: `--serve <port>` starts a token-auth LAN workspace
+with a dark three-panel chat UI, persistent transcript, live activity and tool
+catalogue, context/compaction/token counters, and a single-turn lock. It is
+host-tested and cross-built for the payload; it has not been exercised from a
+PS5 browser or used to complete a model turn on hardware. The native on-console
+UI in the ProsperoStore mold remains a separate project and still needs input,
+focus, text entry and streaming rendering.
 
 Completion: a ten-minute session with no terminal open — browse a catalogue,
-download something, see progress, cancel one, find the file afterwards.
+download something, see progress, cancel one, find the file afterwards — on the
+console, using the browser workspace or a native renderer.
 
 ## P7 — Audit and release
 

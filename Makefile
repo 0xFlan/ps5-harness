@@ -80,6 +80,24 @@ build/mission_test.o: tests/mission_test.cpp | build
 build/mission_test: $(LIB_OBJ) build/mission_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+build/session_test.o: tests/session_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/session_test: $(LIB_OBJ) build/session_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
+build/power_tools_test.o: tests/power_tools_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/power_tools_test: $(LIB_OBJ) build/power_tools_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
+build/server_test.o: tests/server_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/server_test: $(LIB_OBJ) build/server_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
 # The provider round-trip test needs the cleartext-loopback policy, which only
 # exists in builds defining PS5H_TEST_HOOKS. Production targets never set it.
 E2E_DEFS := -DPS5H_TEST_HOOKS
@@ -96,7 +114,7 @@ build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
 build/ps5_package_test: tests/ps5_package_test.cpp | build
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/e2e_agent_test build/ps5_package_test
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/server_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
 	./build/resources_test
@@ -106,6 +124,9 @@ test: build/harness build/harness_e2e build/policy_surface_test build/core_test 
 	./build/skills_test
 	./build/recon_test
 	./build/mission_test
+	./build/session_test
+	./build/power_tools_test
+	./build/server_test
 	@$(MAKE) -C platform/ps5 host-assets
 	./build/ps5_package_test $(PS5_PACKAGE) $(PS5_PACKAGE_MODE)
 	./build/e2e_agent_test

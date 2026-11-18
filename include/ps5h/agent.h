@@ -42,10 +42,22 @@ class Agent {
 
   bool run(const std::string& prompt, const AgentOptions& options,
            AgentRunStats* stats = nullptr);
+
+  // Continues an existing OpenAI-style message array. The caller owns the
+  // system message and prior turns; this appends the assistant/tool messages
+  // for the new turn. `answer` receives the final assistant text.
+  bool run_messages(Json* messages, const AgentOptions& options,
+                    AgentRunStats* stats = nullptr,
+                    std::string* answer = nullptr);
+
+  // Compresses a transcript into a bounded summary for context rollover.
+  // Uses no tools and no recursive agent run.
+  std::string summarize(const std::string& transcript);
   int workers() const { return executor_.workers(); }
 
  private:
-  Json completion(const Json& messages, AgentRunStats* stats);
+  Json completion(const Json& messages, AgentRunStats* stats,
+                  bool include_tools = true);
 
   ModelConfig config_;
   HttpFn http_;

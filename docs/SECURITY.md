@@ -96,10 +96,12 @@ test that proves it must ship with the change.
     overridden by a disk pack with the same name; they are not an audit of any
     external project that shares a name.
 12. **Plan mode is enforced by the registry.** `--plan` removes `fs_write`,
-    `fs_edit`, `http_get`, `download` and all endpoint/plugin tools before any
-    model or delegated child can call them. The prompt overlay is guidance;
-    the missing tool is the control. A read-only run still uses the same
-    canonicalised roots, secret denial, deadlines and delegation depth.
+    `fs_edit`, `fs_mkdir`, `fs_move`, `fs_delete`, `http_get`, `download` and all
+    endpoint/plugin tools before any model or delegated child can call them.
+    The prompt overlay is guidance; the missing tool is the control. A
+    read-only run still uses the same canonicalised roots, secret denial,
+    deadlines and delegation depth. `fs_search`, `hexdump` and `sysctl` are
+    bounded read probes and remain available.
 13. **Recon is read-only and bounded.** `env_info`, `fs_tree`, `file_info` and
     `fs_strings` never write or execute a target. They use the read guard and
     secret-name rules, cap tree entries/strings/hash size, do not follow
@@ -113,6 +115,25 @@ test that proves it must ship with the change.
     mission runner stops at the first failed step. A mission file composes
     agent turns; it cannot execute shell commands or branch into an unbounded
     loop.
+15. **The browser listener is explicit and authenticated.** No socket is
+    opened unless `--serve` is passed. It binds the LAN interface, but every
+    `/api/*` resource requires `Authorization: Bearer <token>`; the token is
+    generated from `/dev/urandom` when not supplied, must be at least 16
+    characters when supplied, is printed once to stderr (never to the log
+    file), and is compared without an early-exit length-independent loop. The
+    page is public only so it can draw the token prompt. There are no cookies,
+    no CORS headers, no wildcard origins and no unauthenticated state
+    mutation. The server serialises turns with a per-process lock, caps request
+    bodies, closes every connection after one response, and serves no path
+    from disk. The session file is checked against the write roots and the
+    secret-name rules before use. Keep the listener off untrusted networks and
+    stop it when finished.
+16. **Power tools do not bypass the write boundary.** `fs_mkdir`, `fs_move`
+    and `fs_delete` use the same canonicalisation, root check and secret-name
+    denial as `fs_write`. Delete is never recursive. `hexdump` and `fs_search`
+    use the read guard and hard caps. `sysctl` is an allowlisted read probe: no
+    shell, no process arguments, no environment or credential namespaces, and
+    bounded output.
 
 ## Secret handling
 
@@ -161,9 +182,13 @@ includes file contents the user asked to read, API responses from manifests and
 any skill instructions or bundled resources loaded with `skill`. `env_info`
 reports mount paths and resource counts, but filters other titles' sandbox
 mounts and never reads configuration or credential files; `fs_tree` marks
-denied names without reading their contents. Say so in the
-UI the first time a file is read, and keep session transcripts local with a
-clear delete path.
+denied names without reading their contents. The browser workspace sends the
+same transcript to the provider and stores it in `<first write root>/ps5h-session.json`
+(or `--session`) unless the user resets the session; that file stays local,
+under the write roots, and is never served as a web asset. `.env` and the other
+secret-name patterns are denied by the same path check. Say so in the UI the
+first time a file is read, and keep session transcripts local with a clear
+delete path.
 
 ## Submission checklist (before the catalog PR)
 

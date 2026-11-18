@@ -421,17 +421,20 @@ it. That isolation choice was not tested with a crashing plugin.
 
 ## Rest mode — code evidence
 
-The harness is a one-shot elfldr payload, not a service that can outlive the
-console's userland. The evidence is in the tree, not only in this report:
+The harness is an elfldr payload, not a service that can outlive the console's
+userland. Since this report was captured, `--serve` added an explicit
+long-lived LAN mode; it still only runs when a human launches `harness.elf`, and
+it is not a rest-mode service. The evidence is in the tree, not only in this
+report:
 
 | Claim | Reference |
 |---|---|
 | The artifact is built for elfldr with a `file:` URI | `platform/ps5/Makefile:89`; `platform/ps5/BUILD.md:197` |
 | The console run used that path | `docs/CONSOLE-REPORT.md:36` (uploaded through the web file manager, started by `elfldr`) |
 | The harness process ends after one command or one agent run | `src/main.cpp:561` (entry); returns at `:1013` (`--call`), `:1034` (`--tools`),   `:1039` (no prompt) and `:1050` (agent run), plus the mission return at `:1010` |
-| The harness opens no listening socket | no `bind(`, `listen(` or `accept(` in `src/`; the only matches are test stubs (`tests/hardening_test.cpp:63`, `tests/e2e_agent_test.cpp:119`) |
-| Its HTTP path is a client, not a server | `src/http.cpp:154` (`make_http_client`, libcurl easy interface) |
-| No server mode is shipped | `docs/SECURITY.md:27` ("No listening service by default; auth if `--serve` is added"); `--serve` is only a roadmap item |
+| The harness opens no listener by default | `src/server.cpp` binds only in the explicit `--serve` path; `src/http.cpp` remains the outbound libcurl client |
+| `--serve` requires a bearer token and is opt-in | `src/server.cpp` rejects every unauthenticated `/api/*` request; `docs/SECURITY.md` invariant 15 |
+| It is not a rest-mode service | the listener starts only after a human launches the payload with `--serve`; nothing registers it with the OS |
 | 9021 and 8888 belong to other processes | `docs/CONSOLE-REPORT.md:13` (elfldr and the web file manager) |
 
 Suspending the console stops that userland, so the harness process, elfldr and
