@@ -35,6 +35,11 @@ DownloadFn make_download_client() {
 
 #include <curl/curl.h>
 
+#if defined(PS5H_PS5_TARGET)
+extern "C" const char* ps5h_console_ca_bundle();
+extern "C" int ps5h_console_nonblocking(int fd);
+#endif
+
 namespace ps5h {
 namespace {
 
@@ -53,6 +58,19 @@ curl_slist* apply_common(CURL* curl, const HttpRequest& request, curl_slist* hea
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, request.timeout_seconds > 0 ? request.timeout_seconds : 60L);
+#if defined(PS5H_PS5_TARGET)
+  // No signals in a native title, the console's certificate list, and the
+  // console's own non-blocking socket option (curl's fcntl does not set it).
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  const char* ca_bundle = ps5h_console_ca_bundle();
+  if (ca_bundle != nullptr) {
+    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle);
+  }
+  curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION,
+                   +[](void*, curl_socket_t socket, curlsocktype) -> int {
+                     return ps5h_console_nonblocking(socket);
+                   });
+#endif
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, request.follow_redirects ? 1L : 0L);
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
   curl_slist* resolve = nullptr;
@@ -62,9 +80,16 @@ curl_slist* apply_common(CURL* curl, const HttpRequest& request, curl_slist* hea
       // CURLOPT_RESOLVE maps a host name to an address. An IP literal has no
       // name to pin, and curl rejects the entry.
       in_addr literal4{};
+#ifdef PS5H_PS5_TARGET
+      // The payload SDK headers omit IPv6 types; treating a colon-bearing host
+      // as a literal keeps it out of the RESOLVE table without inventing them.
+      const bool literal = ::inet_pton(AF_INET, parsed.host.c_str(), &literal4) == 1 ||
+                           parsed.host.find(':') != std::string::npos;
+#else
       in6_addr literal6{};
       const bool literal = ::inet_pton(AF_INET, parsed.host.c_str(), &literal4) == 1 ||
                            ::inet_pton(AF_INET6, parsed.host.c_str(), &literal6) == 1;
+#endif
       if (!literal) {
         const std::string port = parsed.port.empty() ? "443" : parsed.port;
         const std::string entry = parsed.host + ":" + port + ":" + request.resolved_ip;
@@ -101,16 +126,22 @@ struct TransferState {
   CancelFn cancel;
   unsigned long long max_bytes;
   unsigned long long received;
+  unsigned long long resume_from;
   bool cancelled;
   bool over_limit;
 };
 
-int xferinfo_callback(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+int xferinfo_callback(void* user, curl_off_t, curl_off_t download_now, curl_off_t, curl_off_t) {
   auto* state = static_cast<TransferState*>(user);
+  state->received =
+      state->resume_from + static_cast<unsigned long long>(download_now > 0 ? download_now : 0);
   if (state->cancel && state->cancel()) {
     state->cancelled = true;
     return 1;
   }
+  // The cap is checked against bytes already written, including a resumed
+  // prefix, so a download cannot fill the destination past its measured free
+  // space.
   if (state->max_bytes > 0 && state->received > state->max_bytes) {
     state->over_limit = true;
     return 1;
@@ -201,7 +232,7 @@ DownloadFn make_download_client() {
     }
     curl_slist* resolve = apply_common(curl, request.request, headers);
 
-    TransferState state{progress, cancel, request.max_bytes, resume_from, false, false};
+    TransferState state{progress, cancel, request.max_bytes, resume_from, resume_from, false, false};
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
                      +[](char* data, std::size_t size, std::size_t count, void* user) -> std::size_t {
                        auto* out = static_cast<FILE*>(user);

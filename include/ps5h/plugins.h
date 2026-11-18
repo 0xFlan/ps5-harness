@@ -18,7 +18,8 @@ namespace ps5h {
  */
 class PluginHost {
  public:
-  PluginHost(ToolRegistry& registry, HttpFn http, EnvFn env, LogFn log);
+  PluginHost(ToolRegistry& registry, HttpFn http, EnvFn env, LogFn log,
+             std::size_t max_body_bytes = 4u * 1024u * 1024u);
   ~PluginHost();
 
   PluginHost(const PluginHost&) = delete;
@@ -32,6 +33,7 @@ class PluginHost {
   // The C ABI bridge uses these; they are not part of the caller-facing API.
   ToolRegistry& registry() { return registry_; }
   HttpFn http() const { return http_; }
+  std::size_t max_body_bytes() const { return max_body_bytes_; }
   const char* env_value_cstr(const std::string& name);
   void log_message(const char* level, const char* message);
 
@@ -42,6 +44,7 @@ class PluginHost {
   HttpFn http_;
   EnvFn env_;
   LogFn log_;
+  std::size_t max_body_bytes_ = 4u * 1024u * 1024u;
   std::vector<void*> handles_;
   std::vector<std::string> loaded_;
   // Backing storage for get_env(), which must stay valid for the process lifetime.

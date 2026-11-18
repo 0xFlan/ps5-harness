@@ -29,8 +29,13 @@ bool has_shared_library_suffix(const std::string& name) {
 
 }  // namespace
 
-PluginHost::PluginHost(ToolRegistry& registry, HttpFn http, EnvFn env, LogFn log)
-    : registry_(registry), http_(std::move(http)), env_(std::move(env)), log_(std::move(log)) {}
+PluginHost::PluginHost(ToolRegistry& registry, HttpFn http, EnvFn env, LogFn log,
+                       std::size_t max_body_bytes)
+    : registry_(registry),
+      http_(std::move(http)),
+      env_(std::move(env)),
+      log_(std::move(log)),
+      max_body_bytes_(max_body_bytes) {}
 
 PluginHost::~PluginHost() { unload_all(); }
 
@@ -242,6 +247,7 @@ char* host_http_request(void* user, const char* request_json) {
   }
 
   HttpRequest outgoing;
+  outgoing.max_body_bytes = self->max_body_bytes();
   outgoing.method = request["method"].as_string("GET");
   outgoing.url = request["url"].as_string();
   outgoing.body = request["body"].as_string();

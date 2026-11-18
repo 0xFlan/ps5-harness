@@ -17,6 +17,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <chrono>
@@ -294,6 +295,42 @@ std::string tool_call_reply(const std::string& call_id, const std::string& tool,
   return reply.dump();
 }
 
+std::string multi_tool_call_reply() {
+  auto make_call = [](const char* id, const char* name) {
+    Json function = Json::object();
+    function["name"] = name;
+    function["arguments"] = "{}";
+    Json call = Json::object();
+    call["id"] = id;
+    call["type"] = "function";
+    call["function"] = function;
+    return call;
+  };
+
+  Json calls = Json::array();
+  calls.push_back(make_call("call_a", "wait_a"));
+  calls.push_back(make_call("call_b", "wait_b"));
+
+  Json message = Json::object();
+  message["role"] = "assistant";
+  message["content"] = Json();
+  message["tool_calls"] = calls;
+
+  Json choice = Json::object();
+  choice["index"] = 0;
+  choice["finish_reason"] = "tool_calls";
+  choice["message"] = message;
+
+  Json choices = Json::array();
+  choices.push_back(choice);
+
+  Json reply = Json::object();
+  reply["id"] = "stub-parallel";
+  reply["object"] = "chat.completion";
+  reply["choices"] = choices;
+  return reply.dump();
+}
+
 std::string final_reply(const std::string& text) {
   Json message = Json::object();
   message["role"] = "assistant";
@@ -413,7 +450,8 @@ void test_cli_round_trip() {
 }
 
 Agent make_agent(const StubProvider& stub, ToolRegistry& registry, LogFn log,
-                 const std::string& key_env = std::string()) {
+                 const std::string& key_env = std::string(),
+                 RuntimeBudget budget = RuntimeBudget{}) {
   ModelConfig config;
   config.base_url = stub.base_url();
   config.model = "stub-model";
@@ -428,7 +466,8 @@ Agent make_agent(const StubProvider& stub, ToolRegistry& registry, LogFn log,
     return std::string();
   };
   return Agent(config, make_http_client(), registry, env, log,
-               [](const std::string&) {}, UrlPolicy::test_only_loopback_policy(), SecretSet{});
+               [](const std::string&) {}, UrlPolicy::test_only_loopback_policy(), SecretSet{},
+               budget);
 }
 
 void test_malformed_provider_response() {
@@ -517,6 +556,57 @@ void test_deadline_returns_without_blocking() {
   assert(elapsed.count() < 400);  // std::async would have blocked ~600 ms
 }
 
+// Multiple tool calls in one turn run across the budgeted executor. Two calls
+// overlap with two workers and serialize with one; each result still reaches
+// the provider under the matching tool_call_id.
+void test_parallel_tool_calls_follow_budget() {
+  struct Counter {
+    std::atomic<int> active{0};
+    std::atomic<int> peak{0};
+  };
+
+  for (int workers : {2, 1}) {
+    Counter counter;
+    ToolRegistry registry;
+    for (const char* name : {"wait_a", "wait_b"}) {
+      Tool tool;
+      tool.name = name;
+      tool.description = "waits for the other call";
+      tool.parameters = Json::object();
+      tool.parameters["type"] = "object";
+      tool.parameters["properties"] = Json::object();
+      tool.timeout_ms = 5000;
+      tool.handler = [&counter](const Json&) -> Json {
+        const int now = counter.active.fetch_add(1) + 1;
+        int previous = counter.peak.load();
+        while (now > previous && !counter.peak.compare_exchange_weak(previous, now)) {
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        counter.active.fetch_sub(1);
+        return Json("waited");
+      };
+      registry.add(std::move(tool));
+    }
+
+    StubProvider stub({Reply{multi_tool_call_reply()}, Reply{final_reply("parallel done")}});
+    RuntimeBudget budget;
+    budget.workers = workers;
+    Agent agent = make_agent(stub, registry, [](const std::string&) {}, std::string(), budget);
+    assert(agent.workers() == workers);
+
+    AgentOptions options;
+    options.max_steps = 4;
+    options.system_prompt = "test";
+    assert(agent.run("go", options));
+    assert(counter.peak.load() == workers);
+    assert(stub.wait_for_requests(2, 5000));
+    const Recorded second = stub.request(1);
+    assert(second.body.find("\"tool_call_id\":\"call_a\"") != std::string::npos);
+    assert(second.body.find("\"tool_call_id\":\"call_b\"") != std::string::npos);
+    assert(second.body.find("waited") != std::string::npos);
+  }
+}
+
 // The shipped binary has no hook at all: no cleartext endpoint, no hidden flag.
 void test_production_binary_has_no_bypass() {
   StubProvider stub({Reply{"{}"}});
@@ -550,6 +640,8 @@ int main() {
   test_truncated_provider_response();
   std::printf("deadline...\n");
   test_deadline_returns_without_blocking();
+  std::printf("parallel tool calls...\n");
+  test_parallel_tool_calls_follow_budget();
   std::printf("production binary...\n");
   test_production_binary_has_no_bypass();
 

@@ -12,7 +12,6 @@ namespace ps5h {
 namespace {
 
 constexpr std::size_t kMaxResponseBytes = 20000;
-constexpr std::size_t kMaxBufferedBytes = 4u * 1024u * 1024u;
 constexpr int kDefaultToolTimeoutMs = 30000;
 
 void collect_placeholders(const Json& node, std::set<std::string>& out) {
@@ -96,8 +95,13 @@ std::string join_url(const std::string& base, const std::string& path) {
 
 }  // namespace
 
-EndpointCompiler::EndpointCompiler(HttpFn http, EnvFn env, LogFn log, UrlPolicy policy)
-    : http_(std::move(http)), env_(std::move(env)), log_(std::move(log)), policy_(std::move(policy)) {}
+EndpointCompiler::EndpointCompiler(HttpFn http, EnvFn env, LogFn log, UrlPolicy policy,
+                                   std::size_t max_body_bytes)
+    : http_(std::move(http)),
+      env_(std::move(env)),
+      log_(std::move(log)),
+      policy_(std::move(policy)),
+      max_body_bytes_(max_body_bytes) {}
 
 bool EndpointCompiler::load_manifest(const Json& manifest, ToolRegistry& registry,
                                      std::string* error) {
@@ -191,7 +195,7 @@ bool EndpointCompiler::load_manifest(const Json& manifest, ToolRegistry& registr
     tool.timeout_ms = operation_timeout;
 
     tool.handler = [http, env, method, path, base_url, query, body, pick_path, auth_type,
-                    auth_env, auth_header, auth_param, headers,
+                    auth_env, auth_header, auth_param, headers, max_body_bytes = max_body_bytes_,
                     policy = policy_](const Json& arguments) -> Json {
       if (!http) {
         return Json("no HTTP backend available in this build");
@@ -224,7 +228,7 @@ bool EndpointCompiler::load_manifest(const Json& manifest, ToolRegistry& registr
       request.method = method;
       request.url = url;
       request.body = body_text;
-      request.max_body_bytes = kMaxBufferedBytes;
+      request.max_body_bytes = max_body_bytes;
       request.follow_redirects = false;
 
       for (const auto& header : headers.fields()) {

@@ -8,9 +8,9 @@
 //
 //   ./build/ps5_package_test <package-dir> [--assets-only]
 //
-// Without --assets-only, eboot.bin and bringup.elf are required; the mode exists
+// Without --assets-only, eboot.bin and harness.elf are required; the mode exists
 // because the SFO and icon build on a host with no payload SDK, which is what
-// CI has.
+// CI has. bringup.elf is validated when present but is not required.
 
 #include <cctype>
 #include <cstdint>
@@ -394,26 +394,26 @@ bool validate_png(const std::vector<unsigned char>& bytes, PngInfo& info) {
   return ok;
 }
 
-bool validate_elf(const std::vector<unsigned char>& bytes) {
+bool validate_elf(const std::vector<unsigned char>& bytes, const char* name) {
   bool ok = true;
   if (bytes.size() < 64) {
-    fail("bringup.elf is shorter than an ELF header");
+    fail(std::string(name) + " is shorter than an ELF header");
     return false;
   }
   if (bytes[0] != 0x7f || bytes[1] != 'E' || bytes[2] != 'L' || bytes[3] != 'F') {
-    fail("bringup.elf does not start with the ELF magic");
+    fail(std::string(name) + " does not start with the ELF magic");
     return false;
   }
   if (bytes[4] != 2 || bytes[5] != 1) {
-    fail("bringup.elf is not 64-bit little-endian");
+    fail(std::string(name) + " is not 64-bit little-endian");
     ok = false;
   }
   if (le16(bytes.data() + 16) != 2) {
-    fail("bringup.elf is not ET_EXEC (make_fself.py rejects ET_DYN)");
+    fail(std::string(name) + " is not ET_EXEC (make_fself.py rejects ET_DYN)");
     ok = false;
   }
   if (le16(bytes.data() + 18) != 62) {
-    fail("bringup.elf is not x86-64");
+    fail(std::string(name) + " is not x86-64");
     ok = false;
   }
   return ok;
@@ -559,9 +559,16 @@ int main(int argc, char** argv) {
       validate_fself(eboot);
       std::printf("ps5 package: eboot.bin bytes=%zu\n", eboot.size());
     }
-    if (read_file(package / "bringup.elf", elf)) {
-      validate_elf(elf);
-      std::printf("ps5 package: bringup.elf bytes=%zu\n", elf.size());
+    if (read_file(package / "harness.elf", elf)) {
+      validate_elf(elf, "harness.elf");
+      std::printf("ps5 package: harness.elf bytes=%zu\n", elf.size());
+    }
+    if (std::filesystem::exists(package / "bringup.elf")) {
+      std::vector<unsigned char> bringup;
+      if (read_file(package / "bringup.elf", bringup)) {
+        validate_elf(bringup, "bringup.elf");
+        std::printf("ps5 package: bringup.elf bytes=%zu\n", bringup.size());
+      }
     }
   } else {
     std::printf("ps5 package: binaries not required (--assets-only)\n");

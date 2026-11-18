@@ -22,6 +22,8 @@ struct ResourceLimits {
   unsigned long long address_space_hard = 0;
   unsigned long long data_soft = 0;
   unsigned long long data_hard = 0;
+  unsigned long long file_size_soft = 0;
+  unsigned long long file_size_hard = 0;
 };
 
 // What the process can actually use. On the console this is the answer to

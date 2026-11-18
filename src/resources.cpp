@@ -120,6 +120,13 @@ ResourceProfile probe_resources(const std::vector<std::string>& mount_paths) {
     profile.limits.data_hard = from_rlimit(data.rlim_max);
   }
 #endif
+#ifdef RLIMIT_FSIZE
+  struct rlimit file_size {};
+  if (::getrlimit(RLIMIT_FSIZE, &file_size) == 0) {
+    profile.limits.file_size_soft = from_rlimit(file_size.rlim_cur);
+    profile.limits.file_size_hard = from_rlimit(file_size.rlim_max);
+  }
+#endif
 
   struct statfs* entries = nullptr;
   const int count = ::getmntinfo(&entries, MNT_NOWAIT);

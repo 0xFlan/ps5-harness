@@ -4,6 +4,8 @@
 
 #include "ps5h/core.h"
 #include "ps5h/policy.h"
+#include "ps5h/pool.h"
+#include "ps5h/runtime.h"
 #include "ps5h/secrets.h"
 
 namespace ps5h {
@@ -24,9 +26,11 @@ struct AgentOptions {
 class Agent {
  public:
   Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env, LogFn log,
-        LogFn say, UrlPolicy policy, SecretSet secrets);
+        LogFn say, UrlPolicy policy, SecretSet secrets,
+        RuntimeBudget budget = RuntimeBudget{});
 
   bool run(const std::string& prompt, const AgentOptions& options);
+  int workers() const { return executor_.workers(); }
 
  private:
   Json completion(const Json& messages);
@@ -39,6 +43,8 @@ class Agent {
   LogFn say_;
   UrlPolicy policy_;
   SecretSet secrets_;
+  RuntimeBudget budget_;
+  ToolExecutor executor_;
 };
 
 }  // namespace ps5h

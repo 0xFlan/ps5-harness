@@ -36,7 +36,8 @@ namespace ps5h {
  */
 class EndpointCompiler {
  public:
-  EndpointCompiler(HttpFn http, EnvFn env, LogFn log, UrlPolicy policy = UrlPolicy{});
+  EndpointCompiler(HttpFn http, EnvFn env, LogFn log, UrlPolicy policy = UrlPolicy{},
+                   std::size_t max_body_bytes = 4u * 1024u * 1024u);
 
   bool load_manifest(const Json& manifest, ToolRegistry& registry, std::string* error);
   std::size_t load_directory(const std::string& directory, ToolRegistry& registry);
@@ -46,6 +47,7 @@ class EndpointCompiler {
   EnvFn env_;
   LogFn log_;
   UrlPolicy policy_;
+  std::size_t max_body_bytes_ = 4u * 1024u * 1024u;
 };
 
 }  // namespace ps5h

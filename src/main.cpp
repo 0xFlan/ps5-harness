@@ -16,13 +16,20 @@
 #include "ps5h/plugins.h"
 #include "ps5h/policy.h"
 #include "ps5h/resources.h"
+#include "ps5h/runtime.h"
 #include "ps5h/secrets.h"
+
+#ifndef PS5H_BUILD_ID
+#define PS5H_BUILD_ID "dev"
+#endif
+
+#ifndef PS5H_TITLE_ID
+#define PS5H_TITLE_ID "host"
+#endif
 
 namespace {
 
 using namespace ps5h;
-
-constexpr std::size_t kMaxFileRead = 40000;
 
 std::string default_system_prompt() {
   return
@@ -59,6 +66,10 @@ struct BuiltinContext {
   DownloadFn download;
   UrlPolicy policy;
   LogFn log;
+  std::size_t max_file_read = 40000;
+  std::size_t max_http_body = 4u * 1024u * 1024u;
+  std::size_t max_tool_output = 20000;
+  unsigned long long file_size_limit = 0;
 };
 
 Json refuse(const char* reason) { return Json(std::string("refused: ") + reason); }
@@ -123,7 +134,7 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
   {
     Tool tool;
     tool.name = "fs_read";
-    tool.description = "Read a text file inside the read roots. Output is clipped to 40 KB.";
+    tool.description = "Read a text file inside the read roots. Output is clipped to the runtime read budget.";
     Json properties = Json::object();
     properties["path"] = Json::object();
     properties["path"]["type"] = "string";
@@ -132,7 +143,7 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
     tool.parameters["properties"] = properties;
     tool.parameters["required"] = Json::array();
     tool.parameters["required"].push_back("path");
-    tool.handler = [read_guard](const Json& arguments) -> Json {
+    tool.handler = [read_guard, max_read = context.max_file_read](const Json& arguments) -> Json {
       const std::string requested = arguments["path"].as_string();
       if (!read_guard.allows(requested)) {
         return refuse("path is outside the read roots");
@@ -148,7 +159,7 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
       if (!read_file(path, &text)) {
         return Json("cannot read: " + path);
       }
-      return Json(clip(text, kMaxFileRead));
+      return Json(clip(text, max_read));
     };
     registry.add(std::move(tool));
   }
@@ -198,7 +209,7 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
   {
     Tool tool;
     tool.name = "http_get";
-    tool.description = "Fetch a URL into memory (4 MB cap). Use download for files.";
+    tool.description = "Fetch a URL into memory (memory-budgeted cap). Use download for files.";
     tool.parameters = Json::object();
     Json properties = Json::object();
     properties["url"] = Json::object();
@@ -209,7 +220,8 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
     tool.parameters["required"].push_back("url");
     HttpFn http = context.http;
     UrlPolicy policy = context.policy;
-    tool.handler = [http, policy](const Json& arguments) -> Json {
+    tool.handler = [http, policy, max_body = context.max_http_body,
+                    max_output = context.max_tool_output](const Json& arguments) -> Json {
       if (!http) {
         return Json("no HTTP backend available");
       }
@@ -221,13 +233,14 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
       HttpRequest request;
       request.url = url;
       request.resolved_ip = decision.resolved_ip;
+      request.max_body_bytes = max_body;
       HttpResponse response = http(request);
       if (!response.error.empty()) {
         return Json("request failed: " + response.error);
       }
       Json out = Json::object();
       out["status"] = static_cast<long long>(response.status);
-      out["body"] = clip(response.body, kMaxFileRead);
+      out["body"] = clip(response.body, max_output);
       return out;
     };
     registry.add(std::move(tool));
@@ -256,7 +269,7 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
     tool.timeout_ms = 3600000;
     DownloadFn download = context.download;
     UrlPolicy policy = context.policy;
-    tool.handler = [download, policy, write_guard](const Json& arguments) -> Json {
+    tool.handler = [download, policy, write_guard, context](const Json& arguments) -> Json {
       const std::string url = arguments["url"].as_string();
       const std::string requested = arguments["path"].as_string();
       if (!write_guard.allows(requested)) {
@@ -276,12 +289,26 @@ void register_builtin_tools(ToolRegistry& registry, const BuiltinContext& contex
       if (!download) {
         return Json("no download backend available");
       }
+      const StorageBudget storage = download_budget(path);
+      if (!storage.ok) {
+        return Json("cannot measure free space for " + path + ": errno=" +
+                    std::to_string(storage.error));
+      }
+      unsigned long long capacity = storage.capacity;
+      if (context.file_size_limit > 0 && capacity > context.file_size_limit) {
+        capacity = context.file_size_limit;
+      }
+      if (capacity == 0) {
+        return Json("refused: no writable space on the destination filesystem");
+      }
+
       DownloadRequest request;
       request.request.url = url;
       request.request.resolved_ip = decision.resolved_ip;
       request.request.max_body_bytes = 0;
       request.request.timeout_seconds = 3600;
       request.path = path;
+      request.max_bytes = capacity;
       request.expected_sha256 = arguments["sha256"].as_string();
       DownloadResult result = download(request, nullptr, nullptr);
 
@@ -326,6 +353,7 @@ void print_usage() {
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
       "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
+      "  --log <file>         Append diagnostics to a file (console default: /data/ps5-harness-agent.log)\n"
       "  --help               This message\n\n"
 #if defined(PS5H_TEST_HOOKS)
       "TEST BUILD ONLY:\n"
@@ -343,6 +371,7 @@ int main(int argc, char** argv) {
   using namespace ps5h;
 
   std::string config_path;
+  std::string log_path;
   std::string endpoints_dir = "examples/endpoints";
   std::string plugins_dir;
   std::string prompt;
@@ -372,6 +401,8 @@ int main(int argc, char** argv) {
     };
     if (arg == "--config") {
       config_path = next("--config");
+    } else if (arg == "--log") {
+      log_path = next("--log");
     } else if (arg == "--endpoints") {
       endpoints_dir = next("--endpoints");
     } else if (arg == "--plugins") {
@@ -409,8 +440,31 @@ int main(int argc, char** argv) {
     }
   }
 
-  LogFn log = [](const std::string& message) {
+  FILE* log_file = nullptr;
+  if (!log_path.empty()) {
+    log_file = std::fopen(log_path.c_str(), "a");
+    if (log_file == nullptr) {
+      std::fprintf(stderr, "cannot open log: %s\n", log_path.c_str());
+    }
+  }
+#if defined(PS5H_PS5_TARGET)
+  if (log_file == nullptr) {
+    for (const char* candidate : {"/data/ps5-harness-agent.log",
+                                  "/user/homebrew/ps5-harness-agent.log",
+                                  "./ps5-harness-agent.log"}) {
+      log_file = std::fopen(candidate, "a");
+      if (log_file != nullptr) {
+        break;
+      }
+    }
+  }
+#endif
+  LogFn log = [log_file](const std::string& message) {
     std::fprintf(stderr, "[harness] %s\n", message.c_str());
+    if (log_file != nullptr) {
+      std::fprintf(log_file, "[harness] %s\n", message.c_str());
+      std::fflush(log_file);
+    }
   };
   LogFn say = [](const std::string& message) { std::printf("%s\n", message.c_str()); };
   EnvFn env = [](const std::string& name) -> std::string {
@@ -503,12 +557,34 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  const FdLimit fd_limit = raise_fd_limit();
+  if (fd_limit.error != 0) {
+    log("could not raise RLIMIT_NOFILE: errno=" + std::to_string(fd_limit.error));
+  } else if (fd_limit.raised) {
+    const std::string soft =
+        fd_limit.soft == 0 ? "unlimited" : std::to_string(fd_limit.soft);
+    log("raised RLIMIT_NOFILE soft limit to " + soft);
+  }
+  const ResourceProfile profile = probe_resources(read_roots);
+  const RuntimeBudget budget = budget_from_profile(profile);
+
   if (show_resources) {
-    const ResourceProfile profile = probe_resources(read_roots);
     for (const std::string& line : describe_resources(profile)) {
       std::printf("%s\n", line.c_str());
     }
+    for (const std::string& line : describe_budget(budget)) {
+      std::printf("%s\n", line.c_str());
+    }
     return 0;
+  }
+  log(std::string("build=") + PS5H_BUILD_ID + " title=" + PS5H_TITLE_ID);
+#if defined(PS5H_PS5_TARGET)
+  for (const std::string& line : describe_resources(profile)) {
+    log(line);
+  }
+#endif
+  for (const std::string& line : describe_budget(budget)) {
+    log(line);
   }
 
   if (secret_env.empty()) {
@@ -527,15 +603,19 @@ int main(int argc, char** argv) {
   context.download = download;
   context.policy = policy;
   context.log = log;
+  context.max_file_read = budget.file_read_bytes;
+  context.max_http_body = budget.buffered_response_bytes;
+  context.max_tool_output = budget.tool_output_bytes;
+  context.file_size_limit = budget.file_size_limit;
   register_builtin_tools(registry, context);
 
-  EndpointCompiler compiler(http, env, log, policy);
+  EndpointCompiler compiler(http, env, log, policy, budget.buffered_response_bytes);
   const std::size_t endpoint_tools = compiler.load_directory(endpoints_dir, registry);
   if (endpoint_tools > 0) {
     log("loaded " + std::to_string(endpoint_tools) + " endpoint manifest(s)");
   }
 
-  PluginHost plugins(registry, http, env, log);
+  PluginHost plugins(registry, http, env, log, budget.buffered_response_bytes);
   plugins.load_directory(plugins_dir);
 
   if (!call_tool.empty()) {
@@ -565,6 +645,7 @@ int main(int argc, char** argv) {
   }
 
   if (prompt.empty()) {
+    log("no prompt supplied; usage printed");
     print_usage();
     return 2;
   }
@@ -573,6 +654,6 @@ int main(int argc, char** argv) {
   options.max_steps = max_steps;
   options.system_prompt = system_prompt;
 
-  Agent agent(config, http, registry, env, log, say, policy, secrets);
+  Agent agent(config, http, registry, env, log, say, policy, secrets, budget);
   return agent.run(prompt, options) ? 0 : 1;
 }

@@ -3,16 +3,11 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ps5h {
-namespace {
-
-constexpr std::size_t kMaxToolOutput = 20000;
-
-}  // namespace
-
 Agent::Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env, LogFn log,
-             LogFn say, UrlPolicy policy, SecretSet secrets)
+             LogFn say, UrlPolicy policy, SecretSet secrets, RuntimeBudget budget)
     : config_(std::move(config)),
       http_(std::move(http)),
       registry_(registry),
@@ -20,7 +15,9 @@ Agent::Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env,
       log_(std::move(log)),
       say_(std::move(say)),
       policy_(std::move(policy)),
-      secrets_(std::move(secrets)) {}
+      secrets_(std::move(secrets)),
+      budget_(budget),
+      executor_(budget.workers) {}
 
 Json Agent::completion(const Json& messages) {
   if (!http_) {
@@ -57,6 +54,7 @@ Json Agent::completion(const Json& messages) {
     return Json();
   }
   request.resolved_ip = endpoint.resolved_ip;
+  request.max_body_bytes = budget_.buffered_response_bytes;
 
   request.headers.emplace_back("Content-Type", "application/json");
 
@@ -122,45 +120,62 @@ bool Agent::run(const std::string& prompt, const AgentOptions& options) {
       return true;
     }
 
-    for (const Json& call : calls.items()) {
-      const std::string id = call["id"].as_string();
+    // A turn can carry several independent tool calls. They run across the
+    // executor sized from the measured CPU count, but their messages are still
+    // appended in the provider's order.
+    std::vector<ToolJob> jobs;
+    std::vector<std::string> results(calls.size());
+    for (std::size_t i = 0; i < calls.size(); ++i) {
+      const Json& call = calls[i];
       const std::string name = call["function"]["name"].as_string();
       const std::string raw = call["function"]["arguments"].as_string("{}");
 
       Json arguments = Json::object();
-      std::string content;
       if (!raw.empty()) {
         try {
           arguments = Json::parse(raw);
         } catch (const JsonError& failure) {
-          content = std::string("invalid tool arguments: ") + failure.what();
+          results[i] = std::string("invalid tool arguments: ") + failure.what();
+          continue;
         }
       }
 
-      if (content.empty()) {
-        const Tool* tool = registry_.find(name);
-        if (tool == nullptr) {
-          content = "unknown tool: " + name;
-        } else if (!tool->handler) {
-          content = "tool " + name + " has no handler";
-        } else {
-          log_("tool " + name + " " + clip(arguments.dump(), 300));
-          std::string error;
-          Json result = run_with_deadline(tool->handler, arguments, tool->timeout_ms, &error);
-          if (!error.empty()) {
-            content = "tool error: " + error;
-          } else {
-            content = result.is_string() ? result.as_string() : result.dump();
-          }
-        }
-        // Single choke point: nothing leaves for the provider unredacted.
-        content = secrets_.redact(content);
+      const Tool* tool = registry_.find(name);
+      if (tool == nullptr) {
+        results[i] = "unknown tool: " + name;
+        continue;
+      }
+      if (!tool->handler) {
+        results[i] = "tool " + name + " has no handler";
+        continue;
       }
 
+      log_("tool " + name + " " + clip(arguments.dump(), 300));
+      ToolJob job;
+      job.index = i;
+      job.handler = tool->handler;
+      job.arguments = std::move(arguments);
+      job.timeout_ms = tool->timeout_ms;
+      jobs.push_back(std::move(job));
+    }
+
+    const std::vector<ToolOutcome> outcomes = executor_.run(jobs);
+    for (const ToolOutcome& outcome : outcomes) {
+      std::string content;
+      if (!outcome.error.empty()) {
+        content = "tool error: " + outcome.error;
+      } else {
+        content = outcome.result.is_string() ? outcome.result.as_string() : outcome.result.dump();
+      }
+      // Single choke point: nothing leaves for the provider unredacted.
+      results[outcome.index] = secrets_.redact(content);
+    }
+
+    for (std::size_t i = 0; i < calls.size(); ++i) {
       Json tool_message = Json::object();
       tool_message["role"] = "tool";
-      tool_message["tool_call_id"] = id;
-      tool_message["content"] = clip(content, kMaxToolOutput);
+      tool_message["tool_call_id"] = calls[i]["id"].as_string();
+      tool_message["content"] = clip(results[i], budget_.tool_output_bytes);
       messages.push_back(tool_message);
     }
   }
