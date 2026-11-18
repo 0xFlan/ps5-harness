@@ -44,16 +44,20 @@ AGENT_HDR    := $(wildcard ../../include/ps5h/*.h)
 PACBREW_INC  := $(PACBREW_ROOT)/target/user/homebrew/include
 PACBREW_LIB  := $(PACBREW_ROOT)/target/user/homebrew/lib
 
-# make_fself.py accepts ET_EXEC (and SCE variants), not ET_DYN; the SDK's
-# driver defaults to PIE on this target, so opt out at the linker.
-CXXFLAGS += -std=c++20 -O2 -Wall -Wextra -Werror -Wl,--no-pie -I../../include \
+# Two ELF forms are needed. elfldr only spawns ET_DYN payloads, so the
+# package's harness.elf is left as the SDK driver's default PIE. make_fself.py
+# accepts ET_EXEC (and SCE variants), not ET_DYN, so eboot.bin is packed from a
+# second, non-PIE link of the same sources.
+CXXFLAGS += -std=c++20 -O2 -Wall -Wextra -Werror -I../../include \
             -DPS5H_BUILD_ID=\"$(BUILD_ID)\" -DPS5H_TITLE_ID=\"$(TITLE_ID)\"
+NOPIE_FLAGS    := -Wl,--no-pie
 AGENT_CXXFLAGS := $(CXXFLAGS) -DPS5H_PS5_TARGET -I$(PACBREW_INC) -DCURL_STATICLIB
 AGENT_LIBS     := -L$(PACBREW_LIB) -lcurl -lpsl -lssl -lcrypto -lzstd -lz -ldl -pthread
 
-PKG      := $(OUT)/$(TITLE_ID)
-AGENT    := $(OUT)/harness.elf
-BRINGUP  := $(OUT)/bringup.elf
+PKG        := $(OUT)/$(TITLE_ID)
+AGENT      := $(OUT)/harness.elf
+AGENT_NOPIE := $(OUT)/harness-nopie.elf
+BRINGUP    := $(OUT)/bringup.elf
 BIN      := $(PKG)/eboot.bin
 PKG_ELF  := $(PKG)/harness.elf
 SFO      := $(PKG)/sce_sys/param.sfo
@@ -82,13 +86,19 @@ bringup: $(BRINGUP)
 $(OUT):
 	@mkdir -p $(OUT)
 
+# Loadable by elfldr on port 9021: ET_DYN, arguments supplied by a file: URI.
 $(AGENT): $(AGENT_SRC) $(AGENT_HDR) | $(OUT)
 	$(CXX) $(AGENT_CXXFLAGS) -Wl,--wrap=fcntl -o $@ $(AGENT_SRC) $(AGENT_LIBS)
+
+# Input for make_fself.py, which rejects ET_DYN. Same sources, same flags,
+# fixed load address.
+$(AGENT_NOPIE): $(AGENT_SRC) $(AGENT_HDR) | $(OUT)
+	$(CXX) $(AGENT_CXXFLAGS) $(NOPIE_FLAGS) -Wl,--wrap=fcntl -o $@ $(AGENT_SRC) $(AGENT_LIBS)
 
 $(BRINGUP): bringup.cpp $(RESOURCE_SRC) $(RESOURCE_HDR) | $(OUT)
 	$(CXX) $(CXXFLAGS) -o $@ bringup.cpp $(RESOURCE_SRC)
 
-$(BIN): $(AGENT) param.json | $(OUT)
+$(BIN): $(AGENT_NOPIE) param.json | $(OUT)
 	@mkdir -p $(dir $@)sce_sys
 	$(ELF2SELF) --ptype fake --app-version $(APP_VERSION) --fw-version $(APP_VERSION) $< $@
 	cp param.json $(dir $@)sce_sys/param.json

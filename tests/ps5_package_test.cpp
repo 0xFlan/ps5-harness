@@ -394,7 +394,7 @@ bool validate_png(const std::vector<unsigned char>& bytes, PngInfo& info) {
   return ok;
 }
 
-bool validate_elf(const std::vector<unsigned char>& bytes, const char* name) {
+bool validate_elf(const std::vector<unsigned char>& bytes, const char* name, bool require_pie) {
   bool ok = true;
   if (bytes.size() < 64) {
     fail(std::string(name) + " is shorter than an ELF header");
@@ -408,7 +408,14 @@ bool validate_elf(const std::vector<unsigned char>& bytes, const char* name) {
     fail(std::string(name) + " is not 64-bit little-endian");
     ok = false;
   }
-  if (le16(bytes.data() + 16) != 2) {
+  // elfldr spawns ET_DYN payloads only; a fixed-address ET_EXEC image fails
+  // with "Error spawning payload" on hardware. eboot.bin is packed from a
+  // separate non-PIE link by make_fself.py, which rejects ET_DYN.
+  if (require_pie && le16(bytes.data() + 16) != 3) {
+    fail(std::string(name) + " is not ET_DYN (elfldr only spawns PIE payloads)");
+    ok = false;
+  }
+  if (!require_pie && le16(bytes.data() + 16) != 2) {
     fail(std::string(name) + " is not ET_EXEC (make_fself.py rejects ET_DYN)");
     ok = false;
   }
@@ -560,14 +567,14 @@ int main(int argc, char** argv) {
       std::printf("ps5 package: eboot.bin bytes=%zu\n", eboot.size());
     }
     if (read_file(package / "harness.elf", elf)) {
-      validate_elf(elf, "harness.elf");
-      std::printf("ps5 package: harness.elf bytes=%zu\n", elf.size());
+      validate_elf(elf, "harness.elf", true);
+      std::printf("ps5 package: harness.elf bytes=%zu (ET_DYN, elfldr)\n", elf.size());
     }
     if (std::filesystem::exists(package / "bringup.elf")) {
       std::vector<unsigned char> bringup;
       if (read_file(package / "bringup.elf", bringup)) {
-        validate_elf(bringup, "bringup.elf");
-        std::printf("ps5 package: bringup.elf bytes=%zu\n", bringup.size());
+        validate_elf(bringup, "bringup.elf", true);
+        std::printf("ps5 package: bringup.elf bytes=%zu (ET_DYN, elfldr)\n", bringup.size());
       }
     }
   } else {

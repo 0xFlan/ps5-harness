@@ -267,6 +267,10 @@ int main(int argc, char** argv) {
     for (std::size_t offset = 0; offset < kAllocProbeBytes; offset += 4096) {
       bytes[offset] = 1;
     }
+    // The loop stops one page short when the size is a multiple of 4096, so
+    // touch the final byte explicitly; otherwise every large allocation is
+    // reported as failed on a perfectly healthy heap.
+    bytes[kAllocProbeBytes - 1] = 1;
     allocation_ok = bytes[kAllocProbeBytes - 1] == 1;
     std::free(allocation);
   }
