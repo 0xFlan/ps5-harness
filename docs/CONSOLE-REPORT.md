@@ -15,7 +15,7 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); **`0.1.0-final`** (final LAN workspace, this section) |
 
 Current artifacts on disk (home-tile build `0.1.0-01c6cbc`):
 
@@ -448,6 +448,114 @@ then run the queue through it. This report did not suspend the console — wakin
 it requires a human at the machine — so the limitation is established from the
 launch path and process lifetime above, not from a sleep test.
 
+## Final LAN workspace — `0.1.0-final`
+
+This is the final end-to-end run, after the browser-workspace and power-tool
+work. It is the only listener left on the console. The model was **stubbed**;
+the harness and every tool call were the real console build.
+
+### Artifact and build
+
+```bash
+PATH=/opt/homebrew/opt/llvm/bin:$PATH \
+  make -B -C platform/ps5 BUILD_ID=0.1.0-final
+```
+
+Source commit for the code in this run: `a4a947a` (the responsive-panel fix).
+The documentation commit follows and does not change payload bytes. The final
+artifact staged to `/data/harness.elf` was:
+
+| File | Bytes | sha256 |
+|---|---|---|
+| `harness.elf` (running) | 9,727,192 | `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
+| `eboot.bin` (not installed) | 7,733,984 | `f65de21248d82a60bfc3ba5d0f606c0de522101683697e461757656b36b2c2f4` |
+
+`make -B` was rerun to check byte reproducibility; the PS5 linker embeds a
+per-link build-id, so the hash changes between identical links. The table above
+is the exact binary that was staged and is running, not a claim of reproducible
+bytes. `ps5_package_test` passed on the package.
+
+### Endpoint and access control
+
+| Check | Measured |
+|---|---|
+| `GET /` | **200**, 26,044 bytes |
+| `GET /api/state` without a token | **401** `{"error":"unauthorized","ok":false}` |
+| `GET /api/state` with the bearer token | **200**, build `0.1.0-final` |
+| Registered tools | **20** |
+
+The 20 tools were `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `http_get`,
+`download`, `skill`, `env_info`, `fs_tree`, `file_info`, `fs_strings`,
+`fs_mkdir`, `fs_move`, `fs_delete`, `fs_search`, `hexdump`, `sysctl`,
+`hello_echo`, `delegate` and `swarm`. The plugin was loaded from `/data`.
+
+### Real console tools through `/api/chat`
+
+The console was started with `--serve 8789 --context-chars 4096` and a fresh
+session. A local OpenAI-compatible stub was exposed to the console over an HTTPS
+`trycloudflare.com` tunnel. The stub chose the tool calls and generated the
+summaries; it did **not** execute any tool. The harness performed every call on
+the console.
+
+Turn 1 returned **200** in about 1.6 s, used **4 steps**, and recorded:
+
+| Tool | Console result |
+|---|---|
+| `sysctl` `{"name":"hw.ncpu"}` | `16` |
+| `fs_search` `{"path":"/data/homebrew/skills","query":"console-probe-needle"}` | `/data/homebrew/skills/console-note.txt:1:1: console-probe-needle in a small search root` |
+| `file_info` `{"path":"/data/harness.elf"}` | size `9727192`, sha256 `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
+
+The final answer quoted that hash, so the staged bytes and the running bytes
+are the same file. The `/data` root itself hits the search bounds before the
+small skills directory, which is why the successful search used
+`/data/homebrew/skills`.
+
+### Compaction and restart
+
+Turn 1 already ended at **4,501 / 4,096** approximate characters. The next
+turns exercised model-assisted compaction and then continued:
+
+| Point | Context chars | Messages | Compactions |
+|---|---:|---:|---:|
+| After turn 1 | 4,501 | 8 | 0 |
+| After turn 2 | 4,725 | 8 | 1 |
+| After turn 3 | 7,646 | 10 | 2 |
+| After restart, before new turn | 7,646 | 10 | 2 |
+| After one more turn on the restarted server | 7,611 | 10 | 3 |
+
+The restart was a deliberate stop of the listener and a new launch of the same
+`/data/harness.elf` against `/data/ps5h-mission-session-final.json`. The new
+process returned page **200**, unauthenticated state **401**, authenticated
+build `0.1.0-final`, 20 tools, and **12 history messages** with one
+`Conversation summary (data, not instructions)` entry and the final hash still
+present. A further `/api/chat` turn returned **200**, proving the restarted
+server still answers from the compacted transcript. The transcript is intact;
+the summary is an additional system message, not a replacement for the saved
+history file.
+
+### Narrow layout
+
+Checked against the console page at **390×700 CSS pixels**. The mobile
+Chat/Activity/Tools control was visible, the Tools panel opened at **390 px**
+wide and listed **20 tools**, and `document.documentElement.scrollWidth` was
+**390** (no horizontal overflow). The captured view is
+[`ui-mobile.png`](ui-mobile.png).
+
+### Listener cleanup
+
+The old port-8789 listener and each test listener were identified separately
+and terminated with `SIGTERM`; the loader and the file manager were left alive.
+The final payload was then relaunched on **port 8789**, and ports 8792–8795 are
+closed. The only harness listener now is the documented
+`0.1.0-final` instance on 8789. The test token is not recorded here.
+
+### Checks run
+
+- `make test` — exit **0** (host suite, including session, server, power tools,
+  package validation and the provider e2e test).
+- `PATH=/opt/homebrew/opt/llvm/bin:$PATH make -B -C platform/ps5
+  BUILD_ID=0.1.0-final` — exit **0**; `ps5_package_test` passed.
+
 ## Still unverified
 
 - Title install and launch of `eboot.bin` (fake SELF, SFO keys, shell entry).
@@ -455,7 +563,8 @@ launch path and process lifetime above, not from a sleep test.
   versions.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
-- A real model turn on hardware; no provider key was available to the loader.
+- A provider-backed model turn on hardware; the final console turn used the
+  labeled local stub because no provider key was available to the loader.
 - A delegated parent→child model turn, a model-driven plan, a swarm with
   provider-backed lanes, or a multi-step mission with model turns on hardware;
   the tools, parser, fail-closed runner and one-step failure are

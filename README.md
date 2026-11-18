@@ -662,14 +662,22 @@ Verified on the host:
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
 recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
-`0.1.0-e6b6205`, browser listener `0.1.0-c2c533f`):
+`0.1.0-e6b6205`, final LAN workspace `0.1.0-final`):
 
-- **Browser workspace** — on `0.1.0-c2c533f`, `--serve 8789` returned the
-  24 KiB UI page (`200`), rejected an unauthenticated `/api/state` (`401`), and
-  the authenticated state listed all 20 tools including `fs_search`, `hexdump`
-  and `sysctl`. `--call sysctl --args '{"name":"hw.ncpu"}'` returned `16` on
-  the console. No provider key was staged, so the UI's model turn was not run
-  there, and no browser was opened against the console page.
+- **Browser workspace** — the final build `0.1.0-final` served the 26,044-byte
+  UI page at `--serve 8789` (`200`), rejected an unauthenticated `/api/state`
+  (`401`), and listed all 20 tools after authentication. A real multi-turn
+  `/api/chat` on the console called `sysctl` (`hw.ncpu` → `16`), `fs_search`
+  (found `/data/homebrew/skills/console-note.txt:1:1`) and `file_info` (returned
+  sha256 `5e60306d…` for the running `/data/harness.elf`), then returned the
+  model's answer. The model endpoint was a local OpenAI-compatible stub exposed
+  over HTTPS; the tools ran in the console process, not in the stub. The session
+  exceeded its 4,096-character budget, produced two model summaries, continued
+  answering, and reloaded 12 messages with the summary and final hash after the
+  server was restarted. A 390×700 viewport showed the mobile Chat/Activity/Tools
+  switcher, a full-width tool panel listing 20 tools, and no horizontal overflow.
+  The exact final harness hash and all measured counters are in
+  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
   CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
