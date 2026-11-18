@@ -7,6 +7,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -29,6 +32,23 @@ namespace {
 constexpr std::size_t kMaxHeaderBytes = 32u * 1024u;
 constexpr std::size_t kMaxBodyBytes = 1024u * 1024u;
 constexpr std::size_t kMaxMessageChars = 32u * 1024u;
+
+// OpenSSL is used only by the optional HTTPS listener. Each accepted TLS
+// connection runs in its own thread, so the active SSL object is thread-local
+// and the existing HTTP parsing/writing code can stay unchanged.
+thread_local SSL* tls_connection = nullptr;
+
+ssize_t receive_bytes(int fd, void* buffer, std::size_t length) {
+  if (tls_connection == nullptr) return ::recv(fd, buffer, length, 0);
+  const int got = SSL_read(tls_connection, buffer, static_cast<int>(length));
+  if (got > 0) return got;
+  const int error = SSL_get_error(tls_connection, got);
+  if (error == SSL_ERROR_ZERO_RETURN) return 0;
+  if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
+    errno = EAGAIN;
+  }
+  return -1;
+}
 
 struct Request {
   std::string method;
@@ -137,6 +157,13 @@ bool parse_request(const std::string& raw, Request* request, std::string* error)
 bool send_all(int fd, const std::string& data) {
   std::size_t sent = 0;
   while (sent < data.size()) {
+    if (tls_connection != nullptr) {
+      const int wrote = SSL_write(tls_connection, data.data() + sent,
+                                  static_cast<int>(data.size() - sent));
+      if (wrote <= 0) return false;
+      sent += static_cast<std::size_t>(wrote);
+      continue;
+    }
 #ifdef MSG_NOSIGNAL
     const int flags = MSG_NOSIGNAL;
 #else
@@ -288,7 +315,7 @@ void handle_connection(int fd, Shared* shared) {
   bool complete = false;
   std::size_t needed = 0;
   while (raw.size() < kMaxHeaderBytes + kMaxBodyBytes) {
-    const ssize_t got = ::recv(fd, buffer, sizeof buffer, 0);
+    const ssize_t got = receive_bytes(fd, buffer, sizeof buffer);
     if (got < 0) {
       if (errno == EINTR) continue;
       ::close(fd);
@@ -514,6 +541,113 @@ void ActivityLog::clear() {
   entries_.clear();
 }
 
+namespace {
+
+SSL_CTX* make_tls_context(const ServerOptions& options, LogFn log) {
+  if (options.tls_cert.empty() || options.tls_key.empty()) {
+    log("serve: --serve-tls needs --tls-cert and --tls-key");
+    return nullptr;
+  }
+  SSL_CTX* context = SSL_CTX_new(TLS_server_method());
+  if (context == nullptr) {
+    log("serve: cannot create TLS context");
+    return nullptr;
+  }
+  SSL_CTX_set_options(context, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
+                                   SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+  if (SSL_CTX_use_certificate_chain_file(context, options.tls_cert.c_str()) != 1) {
+    log("serve: cannot load TLS certificate: " + options.tls_cert);
+    SSL_CTX_free(context);
+    return nullptr;
+  }
+  if (SSL_CTX_use_PrivateKey_file(context, options.tls_key.c_str(),
+                                  SSL_FILETYPE_PEM) != 1) {
+    log("serve: cannot load TLS private key: " + options.tls_key);
+    SSL_CTX_free(context);
+    return nullptr;
+  }
+  if (SSL_CTX_check_private_key(context) != 1) {
+    log("serve: TLS certificate and key do not match");
+    SSL_CTX_free(context);
+    return nullptr;
+  }
+  return context;
+}
+
+int open_listener(int requested_port, int* actual_port, std::string* error) {
+  const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (listener < 0) {
+    *error = "cannot create socket";
+    return -1;
+  }
+  int reuse = 1;
+  ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof reuse);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_ANY);
+  address.sin_port = htons(static_cast<unsigned short>(requested_port));
+  if (::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0) {
+    *error = "cannot bind port " + std::to_string(requested_port);
+    ::close(listener);
+    return -1;
+  }
+  if (::listen(listener, 16) != 0) {
+    *error = "cannot listen";
+    ::close(listener);
+    return -1;
+  }
+  sockaddr_in actual{};
+  socklen_t actual_length = sizeof actual;
+  *actual_port = requested_port;
+  if (::getsockname(listener, reinterpret_cast<sockaddr*>(&actual), &actual_length) == 0) {
+    *actual_port = ntohs(actual.sin_port);
+  }
+  return listener;
+}
+
+void accept_connections(int listener, SSL_CTX* tls_context, Shared* shared) {
+  while (true) {
+    sockaddr_in peer{};
+    socklen_t peer_length = sizeof peer;
+    const int fd = ::accept(listener, reinterpret_cast<sockaddr*>(&peer), &peer_length);
+    if (fd < 0) {
+      if (errno == EINTR) continue;
+      shared->log("serve: accept failed");
+      break;
+    }
+    if (tls_context == nullptr) {
+      std::thread([fd, shared]() { handle_connection(fd, shared); }).detach();
+      continue;
+    }
+    SSL* ssl = SSL_new(tls_context);
+    if (ssl == nullptr || SSL_set_fd(ssl, fd) != 1) {
+      if (ssl != nullptr) SSL_free(ssl);
+      ::close(fd);
+      shared->log("serve: cannot create TLS connection");
+      continue;
+    }
+    std::thread([fd, ssl, shared]() {
+      if (SSL_accept(ssl) != 1) {
+        shared->log("serve: TLS handshake failed");
+        SSL_free(ssl);
+        ::close(fd);
+        return;
+      }
+      tls_connection = ssl;
+      struct TlsGuard {
+        SSL* ssl;
+        ~TlsGuard() {
+          tls_connection = nullptr;
+          SSL_free(ssl);
+        }
+      } guard{ssl};
+      handle_connection(fd, shared);
+    }).detach();
+  }
+}
+
+}  // namespace
+
 int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
                const AgentOptions& agent_options, const ToolRegistry& tools,
                const ActivityLog& activity, LogFn log) {
@@ -527,53 +661,54 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   shared->log = log;
   refresh_metadata(shared.get());
 
-  const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (listener < 0) {
-    log("serve: cannot create socket");
-    return 1;
-  }
-  int reuse = 1;
-  ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof reuse);
-  sockaddr_in address{};
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_ANY);
-  address.sin_port = htons(static_cast<unsigned short>(options.port));
-  if (::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0) {
-    log("serve: cannot bind port " + std::to_string(options.port));
-    ::close(listener);
-    return 1;
-  }
-  if (::listen(listener, 16) != 0) {
-    log("serve: cannot listen");
-    ::close(listener);
-    return 1;
-  }
-  sockaddr_in actual{};
-  socklen_t actual_length = sizeof actual;
   int port = options.port;
-  if (::getsockname(listener, reinterpret_cast<sockaddr*>(&actual), &actual_length) == 0) {
-    port = ntohs(actual.sin_port);
+  std::string bind_error;
+  const int listener = open_listener(options.port, &port, &bind_error);
+  if (listener < 0) {
+    log("serve: " + bind_error);
+    return 1;
   }
+
+  SSL_CTX* tls_context = nullptr;
+  int https_port = 0;
+  int tls_listener = -1;
+  if (options.https_port > 0) {
+    tls_context = make_tls_context(options, log);
+    if (tls_context == nullptr) {
+      ::close(listener);
+      return 1;
+    }
+    tls_listener = open_listener(options.https_port, &https_port, &bind_error);
+    if (tls_listener < 0) {
+      log("serve: HTTPS " + bind_error);
+      SSL_CTX_free(tls_context);
+      ::close(listener);
+      return 1;
+    }
+  }
+
   const std::string ip = local_address();
   log("browser UI listening on 0.0.0.0:" + std::to_string(port) +
       (options.plan_mode ? " (plan/read-only mode)" : " (full toolset)"));
+  if (tls_listener >= 0) {
+    log("browser UI TLS listening on 0.0.0.0:" + std::to_string(https_port));
+  }
   std::fprintf(stderr,
                "\n  PS5 Harness UI: http://%s:%d/?token=%s\n"
                "  Token is the only credential; keep it off untrusted networks.\n\n",
                ip.c_str(), port, options.token.c_str());
+  if (tls_listener >= 0) {
+    std::fprintf(stderr, "  PS5 Harness UI (HTTPS): https://%s:%d/?token=%s\n\n",
+                 ip.c_str(), https_port, options.token.c_str());
+  }
   std::fflush(stderr);
 
-  while (true) {
-    sockaddr_in peer{};
-    socklen_t peer_length = sizeof peer;
-    const int fd = ::accept(listener, reinterpret_cast<sockaddr*>(&peer), &peer_length);
-    if (fd < 0) {
-      if (errno == EINTR) continue;
-      log("serve: accept failed");
-      break;
-    }
-    std::thread([fd, shared]() { handle_connection(fd, shared.get()); }).detach();
+  if (tls_listener >= 0) {
+    std::thread([tls_listener, tls_context, shared]() {
+      accept_connections(tls_listener, tls_context, shared.get());
+    }).detach();
   }
+  accept_connections(listener, nullptr, shared.get());
   ::close(listener);
   return 0;
 }

@@ -24,10 +24,13 @@ class ActivityLog {
 
 struct ServerOptions {
   int port = 8787;
+  int https_port = 0;
   std::string token;
   std::string session_path;
   std::string build_id;
   std::string model;
+  std::string tls_cert;
+  std::string tls_key;
   bool plan_mode = false;
   std::size_t context_chars = 120000;
 };

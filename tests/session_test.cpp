@@ -117,7 +117,9 @@ int main() {
   ChatSession fresh;
   assert(!fresh.load(dir + "/missing.json", options.system_prompt, &error));
   assert(!error.empty());
-  assert(fresh.message_count() == 1);
+  // message_count() counts conversation messages, not the system prompt.
+  assert(fresh.messages.size() == 1);
+  assert(fresh.message_count() == 0);
   assert(fresh.messages[0]["role"].as_string() == "system");
 
   std::printf("session_test: ok (%d provider calls, %zu compactions)\n", calls,

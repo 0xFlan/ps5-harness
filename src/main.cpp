@@ -585,6 +585,9 @@ void print_usage() {
       "  --plan               Read-only planning mode (no writes, edits, downloads or HTTP)\n"
       "  --mission <file>     Run a bounded JSON mission (sequential steps and/or swarms)\n"
       "  --serve <port>       Serve the browser chat UI and tool API on the LAN\n"
+      "  --serve-tls <port>   Also serve the browser UI over HTTPS\n"
+      "  --tls-cert <file>    PEM certificate/chain for --serve-tls\n"
+      "  --tls-key <file>     PEM private key for --serve-tls\n"
       "  --ui                 Alias for --serve 8787\n"
       "  --serve-token <tok>  Fixed bearer token for --serve (generated if omitted)\n"
       "  --session <file>     Persist the browser conversation to this JSON file\n"
@@ -633,8 +636,12 @@ int main(int argc, char** argv) {
   bool system_prompt_from_config = false;
   bool plan_mode = false;
   bool serve = false;
+  bool serve_tls = false;
   std::string mission_path;
   int serve_port = 8787;
+  int https_port = 8790;
+  std::string tls_cert;
+  std::string tls_key;
   std::string serve_token;
   std::string session_path;
   std::size_t context_chars = 120000;
@@ -704,6 +711,14 @@ int main(int argc, char** argv) {
     } else if (arg == "--serve") {
       serve = true;
       serve_port = std::atoi(next("--serve").c_str());
+    } else if (arg == "--serve-tls") {
+      serve = true;
+      serve_tls = true;
+      https_port = std::atoi(next("--serve-tls").c_str());
+    } else if (arg == "--tls-cert") {
+      tls_cert = next("--tls-cert");
+    } else if (arg == "--tls-key") {
+      tls_key = next("--tls-key");
     } else if (arg == "--serve-token") {
       serve_token = next("--serve-token");
     } else if (arg == "--session") {
@@ -917,6 +932,23 @@ int main(int argc, char** argv) {
   }
   if (serve && (serve_port < 1 || serve_port > 65535)) {
     std::fprintf(stderr, "--serve port must be between 1 and 65535\n");
+    return 2;
+  }
+  if (serve_tls) {
+    if (https_port < 1 || https_port > 65535 || https_port == serve_port) {
+      std::fprintf(stderr, "--serve-tls port must be 1..65535 and differ from --serve\n");
+      return 2;
+    }
+    if (tls_cert.empty() || tls_key.empty()) {
+      std::fprintf(stderr, "--serve-tls needs --tls-cert and --tls-key\n");
+      return 2;
+    }
+    if (access(tls_cert.c_str(), R_OK) != 0 || access(tls_key.c_str(), R_OK) != 0) {
+      std::fprintf(stderr, "TLS certificate or key is not readable\n");
+      return 2;
+    }
+  } else if (!tls_cert.empty() || !tls_key.empty()) {
+    std::fprintf(stderr, "--tls-cert and --tls-key require --serve-tls\n");
     return 2;
   }
   if (context_chars < 4096 || context_chars > 4000000) {
@@ -1187,10 +1219,13 @@ int main(int argc, char** argv) {
                 budget);
     ServerOptions server;
     server.port = serve_port;
+    server.https_port = serve_tls ? https_port : 0;
     server.token = serve_token;
     server.session_path = session_path;
     server.build_id = PS5H_BUILD_ID;
     server.model = config.model;
+    server.tls_cert = tls_cert;
+    server.tls_key = tls_key;
     server.plan_mode = plan_mode;
     server.context_chars = context_chars;
     return run_server(server, agent, session, options, registry, *activity,

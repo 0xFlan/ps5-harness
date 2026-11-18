@@ -1,7 +1,14 @@
 UNAME_S := $(shell uname -s)
 CXX ?= c++
 CC ?= cc
-CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Iinclude
+OPENSSL_CFLAGS := $(shell pkg-config --cflags openssl 2>/dev/null)
+OPENSSL_LIBS := $(shell pkg-config --libs openssl 2>/dev/null)
+ifeq ($(OPENSSL_LIBS),)
+OPENSSL_PREFIX := $(shell brew --prefix openssl 2>/dev/null)
+OPENSSL_CFLAGS := $(if $(OPENSSL_PREFIX),-I$(OPENSSL_PREFIX)/include,)
+OPENSSL_LIBS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib -lssl -lcrypto,-lssl -lcrypto)
+endif
+CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Iinclude $(OPENSSL_CFLAGS)
 VERSION := $(shell cat VERSION)
 
 # P2 package check. The SFO and icon come from host-only Python generators;
@@ -13,9 +20,9 @@ PS5_PACKAGE      := .deps/ps5-build/$(PS5_TITLE_ID)
 PS5_PACKAGE_MODE := $(if $(wildcard $(PS5_PACKAGE)/eboot.bin),,--assets-only)
 
 ifeq ($(UNAME_S),Linux)
-PLATFORM_LIBS := -lcurl -ldl -pthread
+PLATFORM_LIBS := -lcurl $(OPENSSL_LIBS) -ldl -pthread
 else
-PLATFORM_LIBS := -lcurl
+PLATFORM_LIBS := -lcurl $(OPENSSL_LIBS)
 endif
 
 LIB_SRC := $(filter-out src/main.cpp,$(wildcard src/*.cpp))
