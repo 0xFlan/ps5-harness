@@ -150,8 +150,9 @@ plugin directories you would run as a program.
 ## Building for the PS5
 
 The real agent, not the bring-up probe. `make -C platform/ps5` cross-compiles
-every source in `src/` plus `platform/ps5/console_compat.cpp` to an x86-64
-FreeBSD ELF and emits one installable title folder:
+every source in `src/` plus `platform/ps5/console_compat.cpp` twice — once as
+PIE for elfldr, once as a fixed-address ET_EXEC for `make_fself.py` — and emits
+one installable title folder:
 
 ```
 PHAR00001/
@@ -168,6 +169,10 @@ CA bundle, the `SO_NBIO` socket mode and an `fcntl` wrapper for sandboxed
 sockets. The SDK libc already provides the resolver and libc symbols native
 titles had to stub, so those are not redefined here.
 
+`harness.elf` is **ET_DYN**: elfldr only spawns PIE payloads, and an ET_EXEC
+image fails at spawn. `eboot.bin` is built from a second, non-PIE link because
+`make_fself.py` rejects ET_DYN. `ps5_package_test` asserts the loader form.
+
 At startup the agent probes online CPUs, visible memory, rlimits and every
 mount, then derives its runtime budget: one tool worker per usable CPU, buffered
 responses from a sixteenth of visible memory, and download capacity from the
@@ -181,13 +186,14 @@ PacBrew pins, artifact hashes, the shims and the console commands.
 
 Remaining:
 
-1. Boot the agent on a console and record the log. A title launch supplies no
-   argv, so the packaged `eboot.bin` currently prints usage; a runnable session
-   needs a loader that preserves `--config`/`--prompt` and the model key.
-2. Verify DNS, the CA list and the clock before claiming TLS (P3).
-3. Confirm `dlopen` of a plugin `.so` and elevated writes on your firmware (P3).
-4. Check the fake-SELF `--paid`/`--ptype` values and the SFO key set against
-   your loader, using a working homebrew title as the reference.
+1. Install `eboot.bin` as a title and check the fake-SELF `--paid`/`--ptype`
+   values and the SFO key set against your loader. A title launch supplies no
+   argv or environment, so the runnable path is currently the `file:` URI on
+   elfldr with `--config`/`--prompt`.
+2. Record the firmware and exploit/loader versions, then repeat the run on the
+   firmware you intend to support.
+3. Test USB writes and an app-sandbox write; only `/data`, `/data/homebrew` and
+   `/user` were written from the payload path.
 
 ## Status
 
@@ -212,8 +218,9 @@ Verified on the host:
   recovers from; the tool deadline returns without waiting for the abandoned
   handler
 - **Real agent cross-build**: `make -C platform/ps5` compiles all `src/*.cpp`
-  plus the console glue, links PacBrew libcurl/OpenSSL, and packs a fake-SELF
-  `eboot.bin` from `harness.elf` (SDK v0.45, LLVM 23.1.4 on macOS)
+  plus the console glue, links PacBrew libcurl/OpenSSL, and emits a PIE
+  `harness.elf` for elfldr plus a fake-SELF `eboot.bin` from a separate non-PIE
+  link (SDK v0.45, LLVM 23.1.4 on macOS)
 - **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
   disk, checks the fSELF magic and the agent ELF header, and passes on the
   package above
@@ -225,16 +232,46 @@ Verified on the host:
   physical memory, mount enumeration and report formatting; `harness
   --resources` prints this Mac's profile
 
+Verified on the console (2026-11-18, build `0.1.0-fd5d0ae`):
+
+- **Boot and resources** — `harness.elf` starts under elfldr, writes
+  `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
+  CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
+  and `workers=16 buffered=136 MiB file-read=4 MiB`.
+- **TLS** — `https://example.com/` returned 200 through the agent's static
+  libcurl; `https://expired.badssl.com/` failed with a peer-certificate error,
+  so verification was on.
+- **`dlopen`** — the example plugin built with the SDK header loaded from
+  `/data`, registered `hello_echo` and returned a result.
+- **Writes** — `/data`, `/data/homebrew` and `/user` all wrote and read back.
+- **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
+  Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
+- **1 GB transfer** — on the preceding build `0.1.0-2e6d21c`, a 1 GiB OVH
+  transfer resumed from a 64 MiB prefix and reached exactly 1,073,741,824
+  bytes; the completed file's sha256 matches the source digest. The finalize
+  step on that run hit the stack-buffer bug, now fixed; on `fd5d0ae` a 10 MiB
+  resume returned `206`, matched its digest and renamed into place.
+- **Free-space cap** — a 10 MB request on the 2 MiB `/mnt` tmpfs stopped after
+  1.71 MB with `download exceeds the configured byte limit`.
+
+`docs/CONSOLE-REPORT.md` has the transcript and both defects the run exposed
+(the ET_EXEC spawn failure and a 64 KiB stack buffer in the digest path).
+
 Not verified or not built:
 
-- **Nothing has run on a PS5.** The package contains the real agent, but it has
-  never been launched or installed; P2's boot criterion, TLS, DNS, `dlopen` and
-  elevated writes are all console-only and unclaimed.
-- **The console's resource envelope is unknown.** CPU count, visible memory,
-  rlimits and mount points are pending the first agent run.
-- **A title launch passes no arguments.** The `eboot.bin` agent has no config,
-  prompt or key in that path yet; the ELF path with a loader that preserves argv
-  is the current way to run a turn.
+- **The title path is uninstalled.** `eboot.bin` was not installed or launched
+  from the shell; the fake SELF, SFO key set and `--paid`/`--ptype` values still
+  need a loader. A title launch also supplies no argv or environment, so the
+  `file:` URI remains the runnable route.
+- **Firmware and exploit versions are unrecorded.** No shell was available to
+  query them.
+- **USB and app-sandbox writes are untested.** No USB device was present and
+  there was no title sandbox.
+- **Peak memory during a 1 GB transfer is unmeasured.** The path streams in
+  fixed chunks and hashed the 1 GiB file externally, but no RSS figure was
+  captured on the console.
+- **No model turn has run on hardware.** No provider key was available to the
+  loader; the capability checks use `--call` over the same code paths.
 - **CI has not executed.** The workflow is committed; no remote run yet.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
@@ -242,8 +279,6 @@ Not verified or not built:
 - **No on-console UI.** CLI and `--call` only.
 - **No elevation helper**, so writes reach only what the process can already
   open.
-- **Download resume** is implemented and unit-tested against a local fixture,
-  but a 1 GB interrupted transfer on hardware is unverified.
 
 ## Roadmap
 

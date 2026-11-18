@@ -1,16 +1,18 @@
 # PS5 Harness — master plan
 
-Status: **P0 and P1 complete; P2's real-agent artifact builds, links and
-validates on the host.** Boot and P3 capabilities are blocked on a console.
-Nothing has run on hardware.
+Status: **P0 and P1 complete; P2 and P3 are verified on a console for the elfldr
+payload, and most of P4 is.** The agent boots, probes 16 CPUs / 2185 MiB /
+13952 fds, reaches HTTPS, loads a plugin and writes `/data`, `/data/homebrew`
+and `/user`. The packaged title has not been installed, and USB and peak-memory
+measurement remain open.
 
 | Phase | State |
 |---|---|
 | P0 Repo hygiene | Done — license, `.gitignore`, `VERSION`, CI workflow, first commit. CI has not executed on a remote. |
 | P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean. |
-| P2 Console bring-up | Partial — the real agent cross-builds to `eboot.bin`/`harness.elf` with static libcurl/OpenSSL, console glue and a resource-scaled runtime; the package validator passes on the host. Boot is blocked on a console. |
-| P3 Capabilities | **Blocked** — hardware only (TLS, DNS, CA path, `dlopen`, elevated write). |
-| P4 Tool surface | Partial — streaming downloader with resume/sha256, CPU-sized parallel tool execution, and memory/fd/free-space budgets are implemented and host-tested; install/launch need P3. |
+| P2 Console bring-up | Partial — `harness.elf` boots under elfldr and logs 16 CPUs, 2185 MiB, 13952 fds, 342 GiB free on `/data` and a 16-worker budget. The packaged `eboot.bin` title has not been installed, so the phase's literal completion is not met. |
+| P3 Capabilities | Done for the payload path — TLS (200, bad cert rejected), `dlopen` and writes to `/data`, `/data/homebrew` and `/user` observed 2026-11-18; USB was absent. |
+| P4 Tool surface | Mostly done — resume returned 206 with a matching digest and the free-space cap fired on a 2 MiB mount; 1 GB and peak RSS tracked below. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
 | P6 UX | Not started. |
 | P7 Audit + release | Partial — threat model, fuzz, ASan and the provider round trip done; hardware audit and release engineering pending. |
@@ -34,7 +36,8 @@ worker count, response buffers and download capacity from a measured resource
 profile rather than host constants.
 
 That is a proof of the extension contract, not a product. The host defects in
-`docs/AUDIT.md` are fixed; the console artifact builds but has never booted.
+`docs/AUDIT.md` are fixed, and the console artifact now boots and runs on a PS5
+(2026-11-18, evidence in `docs/CONSOLE-REPORT.md`).
 
 ## Sequencing rule
 
@@ -93,7 +96,9 @@ State: the toolchain decision is recorded — macOS host, SDK zip sha256
 `platform/ps5/console_compat.cpp`, links the PacBrew archives, and packs a
 fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The package holds
 `eboot.bin`, `harness.elf`, `sce_sys/param.sfo` and `sce_sys/icon0.png` (build
-`0.1.0-426c2db`). The title ID is chosen once in `platform/ps5/title.mk`
+`0.1.0-fd5d0ae`). `harness.elf` is a PIE/ET_DYN link for elfldr; `eboot.bin` is
+packed from a separate non-PIE link because `make_fself.py` rejects ET_DYN. The
+title ID is chosen once in `platform/ps5/title.mk`
 (`PHAR00001`, homebrew range) and appears in the SFO, `param.json`, the package
 folder and the agent log.
 
@@ -114,10 +119,13 @@ fail if those stop following the measurements. The agent logs build id, resource
 lines and budget to `/data/ps5-harness-agent.log` (with fallbacks) and accepts
 `--log`.
 
-The remaining criterion — boot and log free space on the console — needs
-hardware; no part of this has run on a PS5, and none of the console's resource
-numbers has been observed. A title launch supplies no argv, so the packaged
-`eboot.bin` prints usage until a launch path for config/prompt/key exists.
+Boot and the resource log are now observed: `harness.elf` started under elfldr
+at build `0.1.0-fd5d0ae`, wrote `/data/ps5-harness-agent.log` with 16 online
+CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
+and `workers=16 buffered=136 MiB file-read=4 MiB`, then exited cleanly. A title
+launch still supplies no argv or environment, so the packaged `eboot.bin` has
+not been installed or run; the `file:` URI with `?args=` is the runnable path.
+The full transcript is in `docs/CONSOLE-REPORT.md`.
 
 ## P3 — Console capabilities
 
@@ -134,9 +142,12 @@ Completion: all three demonstrated on hardware. A partial result is a valid
 outcome and changes the design: no `dlopen` means manifests-only plus a
 helper-process plugin host; no elevated write means USB-first storage.
 
-The agent binary now contains the real curl/OpenSSL path, the console CA lookup,
-the socket shims and `dlopen`; that is build evidence only. None of the three
-P3 criteria is claimed until it is observed on a console.
+TLS, `dlopen` and elevated writes to console paths are now observed from the
+elfldr payload path (`docs/CONSOLE-REPORT.md`): `https://example.com/` returned
+200 while an expired certificate was rejected; the SDK-built `hello.so` loaded
+and ran; and writes succeeded under `/data`, `/data/homebrew` and `/user`.
+USB was absent, so that half of the elevated-write check is open, and none of
+this has been repeated inside a title sandbox.
 
 ## P4 — Tool surface
 
@@ -147,10 +158,21 @@ Title list and launch, behind the elevation capability probe from P3.
 The measured budget is now implemented: worker concurrency from `cpu_online`
 bounded by the fd limit, buffered responses from a sixteenth of visible memory,
 and download capacity from the destination filesystem and `RLIMIT_FSIZE`.
-Streaming downloads and per-tool deadlines still hold. The remaining P4 work is
-install/launch and a hardware transfer test, both behind P3.
+Streaming downloads and per-tool deadlines still hold.
 
-Completion: a 1 GB download interrupted at 50% resumes and verifies on hardware.
+On hardware, a 10 MiB transfer seeded with a 1 MiB `.part` resumed with a Range
+request (`206`), finished at exactly 10,485,760 bytes and matched its sha256. A
+1 GiB OVH transfer resumed from 64 MiB, reached 1,073,741,824 bytes, and the
+completed file's sha256 matched the source; that run's finalize hit the
+64 KiB stack buffer that `fd5d0ae` fixed, after which the 10 MiB resume finalized
+correctly. A 10 MB request to the 2 MiB `/mnt` tmpfs stopped at 1.71 MB with the
+configured-limit error. Peak RSS is still unmeasured. The remaining P4 work is
+install/launch, which needs the title path.
+
+Completion: a 1 GB transfer completes and verifies on hardware, and an
+interrupted transfer resumes rather than restarting. The 1 GiB run was seeded at
+64 MiB and verified externally; the 10 MiB run resumed at 1 MiB and finalized
+with `206`, a matching digest and a rename.
 
 ## P5 — Extension ecosystem
 
@@ -204,13 +226,14 @@ and the support matrix names the exact firmware and exploit toolchain tested.
 
 ## Open questions (answer before the phase that needs them)
 
-- **P2:** how does a console launch supply `--config`, `--prompt` and the model
-  key to the agent? A title launch has no argv; the ELF path is the current
-  workaround and a default entry point is undecided.
-- **P3:** does the target firmware permit `dlopen` of an app-local `.so`, and
-  do the resolver and `CA_LIST.cer` work from this payload?
-- **P4:** does the console expose free space per mount without elevation? P2's
-  probe now asks this of every mount; the answer is pending hardware.
+- **P2:** how does a title launch supply `--config`, `--prompt` and the model
+  key? A title has no argv or environment. The `file:` URI on elfldr with
+  `?args=` works and is the current path; a default entry point or a config
+  file for the title is still undecided.
+- **P3:** answered for the elfldr payload — `dlopen`, the resolver and TLS all
+  worked. Still open: whether a title sandbox permits the same app-local `.so`.
+- **P4:** answered — the resource probe reports free/total space for `/data`
+  and the `/mnt` tmpfs without elevation; `/user/homebrew` was unavailable.
 - **P5:** registry hosted where — GitHub repo, or the harness fetches a static
   index from any URL the user configures?
 - **P6:** is there a usable text-entry path on the console, or does the LAN

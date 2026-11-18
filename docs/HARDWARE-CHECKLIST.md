@@ -4,6 +4,11 @@ Run once per attempt. Copy the block at the bottom into a report and fill it in.
 A phase is not complete because a build succeeded elsewhere; it is complete when
 the relevant rows below are ticked on the console.
 
+The 2026-11-18 attempt (build `0.1.0-fd5d0ae`, elfldr payload path) is recorded
+in `docs/CONSOLE-REPORT.md`: P2 boot/resources, P3 TLS/`dlopen`/writes and the
+P4 resume/free-space checks are filled there; the title-install and USB rows
+remain open.
+
 ## Record first
 
 - Console model and region:
