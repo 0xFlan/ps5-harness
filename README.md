@@ -181,9 +181,47 @@ overrides both. The file name is the agent name: `<dir>/<name>.json`.
 `system_prompt_file` is canonicalised and must stay inside the profile
 directory; both prompt forms are capped at 64 KiB. A profile cannot set
 `allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
-`plugins_dir` or `api_key_env` — those stay in the main config, so a profile
-cannot widen its own permissions. Explicit `--model` and `--max-steps` flags
-win over the profile.
+`plugins_dir`, `api_key_env` or `delegation_max_depth` — those stay in the main
+config, so a profile cannot widen its own permissions. Explicit `--model` and
+`--max-steps` flags win over the profile.
+
+### Delegating to another profile
+
+Any run exposing the `delegate` tool can hand a subtask to another local
+profile:
+
+```json
+{"profile":"archivist","task":"list /data/homebrew and summarise it"}
+```
+
+The child is a normal agent run. It uses the profile prompt, model,
+temperature, `max_tokens` and `max_steps`, and it receives a copy of the
+parent's tool registry. That copy keeps the parent's `PathGuard`, `UrlPolicy`,
+secrets and endpoint/plugin tools, so delegation cannot widen filesystem,
+network or credential access. A profile that names `allowed_roots`,
+`read_roots`, `url_policy`, `secret_env`, `endpoints_dir`, `plugins_dir`,
+`api_key_env` or `delegation_max_depth` is rejected before the child starts.
+
+`delegation_max_depth` in the config (default 2; `--max-depth` overrides, and 0
+disables delegation) limits nesting. The child reserves steps and tokens from
+the parent's `max_steps`/`max_tokens` pool; unused steps and reported tokens
+are refunded, while a provider that omits usage leaves its full token
+reservation charged. An over-sized child request is refused, not clamped.
+Explicit `--model` and `--max-steps` flags still win over the child profile.
+
+The run log names both sides and the accounting:
+
+```
+[harness] delegate -> profile=archivist depth=1 task=list /data/homebrew
+[harness] delegate answer from archivist: ...
+[harness] delegate <- profile=archivist ok=true steps=2 tokens=123 remaining=4/389
+```
+
+`--call delegate --args '{"profile":"archivist","task":"..."}'` runs one
+delegation without a parent model turn and prints a JSON result containing
+`ok`, `profile`, `depth`, `steps`, `tokens` and the remaining budget. The
+child's answer is returned to the parent as the tool result and is also logged;
+it is not printed as a separate final answer.
 
 ```bash
 ./build/harness --agents examples/agents --list-agents
@@ -268,6 +306,12 @@ Verified on the host:
   CLI test proves a profile's system prompt, model, temperature and token cap
   reach the provider request, and `--list-agents`/`--agent-info` work without a
   model call
+- **Delegation**: a parent stub conversation calls `delegate`; the child profile
+  runs with the parent's tools and policy, a denied read outside the parent root
+  proves the inherited guard, and the result returns to the parent. The suite
+  also covers max-depth refusal, exact step/token refund accounting, explicit
+  `--model`/`--max-steps` precedence, unknown profiles, self-delegation,
+  policy-key rejection and budget exhaustion
 - Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
 - **Full provider round trip** through the test build of the CLI
   (`build/harness_e2e`, same sources plus the test hook) against a local
@@ -293,7 +337,7 @@ Verified on the host:
   --resources` prints this Mac's profile
 
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
-`0.1.0-4d7499f`):
+`0.1.0-4d7499f`, delegation `0.1.0-d9c09b8`):
 
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
@@ -310,6 +354,12 @@ Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
   inline archivist prompt and the maintainer's `system_prompt_file`; overwriting
   `archivist.json` on the console changed the next `--list-agents` output to v2
   with no rebuild.
+- **Delegation** — on `0.1.0-d9c09b8`, the log recorded the new build,
+  `--tools` listed `delegate`, both profile commands still resolved (including
+  `delegation_max_depth=2`), and `--call delegate` with a missing profile failed
+  closed and logged `delegate ! ... cannot load agent`. No provider key was
+  staged, so a delegated model turn was not run on hardware; the host e2e suite
+  covers that path.
 - **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
   Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
 - **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a

@@ -15,19 +15,20 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-d9c09b8` (delegation) |
 
-Current artifacts on disk (local-agent build):
+Current artifacts on disk (delegation build):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,219,024 | `662bc5f95f3d9e67ab25e87a0d34fc60cdc228574794ef69012f7e62939e8491` |
-| `harness.elf` | 9,125,816 | `1a50569c8d30f32ee20837c417a3d9d56ffd5fc904057a7ade371a185f3d2833` |
+| `eboot.bin` | 7,280,368 | `14fa3c1bd5c21c71ae22888fd1563e0bd07271074be86a21c204f381e935b1c8` |
+| `harness.elf` | 9,186,008 | `0c9c0480232081c973178454bdadc5f220d9738314065ec26c93510f550aba26` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
-local-agent checks use `0.1.0-4d7499f`.
+local-agent checks use `0.1.0-4d7499f`; the delegation checks use
+`0.1.0-d9c09b8`.
 
 ## How it was launched
 
@@ -197,6 +198,68 @@ A `--call fs_list` run confirmed the on-console log records
 the host e2e test asserts that a loaded profile's prompt, model, temperature
 and token cap reach the provider request.
 
+## Delegation — build 0.1.0-d9c09b8
+
+The delegation build was cross-compiled from commit `d9c09b8` and uploaded to
+`/data/harness.elf`. The on-console log records:
+
+```
+[harness] build=0.1.0-d9c09b8 title=PHAR00001
+```
+
+`--tools` listed seven tools, including the model-callable delegation entry:
+
+```
+7 tools registered
+  delegate  (3600000 ms)
+```
+
+`--list-agents` still read the console profile directory:
+
+```
+agents_dir=/data/homebrew
+archivist                Local archivist v2: edited on the console.
+maintainer               Local maintainer: keep a short maintenance log for the console.
+```
+
+`--agent-info archivist` still resolved the profile, now with the delegation
+depth from the main config:
+
+```
+name=archivist
+description=Local archivist v2: edited on the console.
+model=gpt-4o-mini
+temperature=0.200
+max_tokens=1024
+max_steps=8
+delegation_max_depth=2
+system_prompt_source=profile
+system_prompt_bytes=212
+```
+
+A direct `--call delegate` with a missing profile exercised the fail-closed
+path on hardware. It returned `ok: false` and wrote both the attempt and the
+refusal to the log; the main config's step/token pool is visible in the result:
+
+```
+[harness] delegate call profile=missing from_depth=0 max=2
+[harness] delegate ! profile=missing depth=1 error=cannot load agent: cannot read /data/homebrew/missing.json
+{
+  "depth": 1,
+  "error": "cannot load agent: cannot read /data/homebrew/missing.json",
+  "ok": false,
+  "profile": "missing",
+  "remaining_steps": 4,
+  "remaining_tokens": 512
+}
+```
+
+No provider key was staged, so a real parent→child model conversation was not
+run on the console. The host e2e suite drives that path through the stub
+provider, including the parent `delegate` tool call, the child profile request,
+a child `fs_read` refused by the inherited parent root, the child answer
+returned to the parent, max-depth refusal, and exact step/token refunds.
+
 ## P5 — extension contract
 
 The `hello` plugin was built outside the package with only
@@ -213,4 +276,6 @@ it. That isolation choice was not tested with a crashing plugin.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
 - A real model turn on hardware; no provider key was available to the loader.
+- A delegated parent→child model turn on hardware; the `delegate` tool and its
+  fail-closed path are console-verified, but no child provider call was made.
 - The exact CA bundle path and resolver used.

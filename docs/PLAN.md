@@ -34,8 +34,11 @@ through the C ABI all work. One live HTTPS call to
 `archive.org/advancedsearch.php` returned real records. Local agent profiles
 (`--agent`, `--list-agents`, `--agent-info`) load prompt and model overrides
 from JSON files on disk; editing a profile changes the next run without a
-rebuild. The runtime derives its worker count, response buffers and download
-capacity from a measured resource profile rather than host constants.
+rebuild. A running agent can call `delegate` to hand a bounded subtask to
+another profile; the child inherits the parent's tools and security policy and
+charges its steps/tokens to the parent's budget. The runtime derives its worker
+count, response buffers and download capacity from a measured resource profile
+rather than host constants.
 
 That is a proof of the extension contract, not a product. The host defects in
 `docs/AUDIT.md` are fixed, and the console artifact now boots and runs on a PS5
@@ -196,13 +199,24 @@ The local counterpart to the extension registry is a profile directory. Each
 `<name>.json` can set a system prompt (inline or from a file), model,
 temperature, token cap and step budget; the profile is read on every launch, so
 editing it on the console needs no rebuild. Profiles cannot change roots, URL
-policy, secrets, or endpoint/plugin directories — those remain in the main
-config. `--list-agents` and `--agent-info` work without a provider key, and the
-host e2e suite asserts that a profile prompt and model reach the provider
-request. Console-verified on `0.1.0-4d7499f`: `--list-agents` read profiles from
-`/data/homebrew`, `--agent-info` resolved both an inline prompt and a
-`system_prompt_file`, and editing a profile changed the next run without a
-rebuild.
+policy, secrets, endpoint/plugin directories or the delegation depth — those
+remain in the main config. `--list-agents` and `--agent-info` work without a
+provider key, and the host e2e suite asserts that a profile prompt and model
+reach the provider request. Console-verified on `0.1.0-4d7499f`: `--list-agents`
+read profiles from `/data/homebrew`, `--agent-info` resolved both an inline
+prompt and a `system_prompt_file`, and editing a profile changed the next run
+without a rebuild.
+
+The delegation extension exposes a `delegate(profile, task)` tool. The child
+receives a copy of the parent's tools, so the parent's `PathGuard`, URL policy,
+secrets and endpoint/plugin surface still apply; a profile that tries to set a
+boundary key is rejected before the child runs. `delegation_max_depth` (default
+2, `--max-depth`) bounds nesting, the child reserves steps/tokens from the
+parent's pool, and refusals are logged. Host e2e covers a full parent/child
+provider round trip, inherited-root refusal, depth and budget limits, flag
+precedence and unknown/self profiles. Console-verified on `0.1.0-d9c09b8`: the
+build id, `delegate` in `--tools`, both profile commands, and a missing-profile
+refusal; no provider key was staged for an on-console child turn.
 
 ## P6 — User experience
 

@@ -14,14 +14,14 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,219,024 | `662bc5f95f3d9e67ab25e87a0d34fc60cdc228574794ef69012f7e62939e8491` |
-| `harness.elf` | 9,125,816 | `1a50569c8d30f32ee20837c417a3d9d56ffd5fc904057a7ade371a185f3d2833` |
+| `eboot.bin` | 7,280,368 | `14fa3c1bd5c21c71ae22888fd1563e0bd07271074be86a21c204f381e935b1c8` |
+| `harness.elf` | 9,186,008 | `0c9c0480232081c973178454bdadc5f220d9738314065ec26c93510f550aba26` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 4,223 | `38c53aee2109dc4b3200b98dcacf8a294388b84436c97298933abb0947ebbef8` |
 
-Measured from build id `0.1.0-4d7499f`. The build id embeds `VERSION` and the
-commit, so any commit or source change alters the two binaries; quote the build
-id, not only a hash, in a console report.
+Measured from build id `0.1.0-d9c09b8` (the delegation build). The build id
+embeds `VERSION` and the commit, so any commit or source change alters the two
+binaries; quote the build id, not only a hash, in a console report.
 
 The package contains:
 
@@ -45,10 +45,10 @@ the checklist asks you to install.
 Every production source file is compiled for the target:
 
 ```
-src/agent.cpp  src/core.cpp  src/endpoints.cpp  src/http.cpp  src/json.cpp
-src/main.cpp   src/paths.cpp src/plugins.cpp    src/policy.cpp
-src/pool.cpp   src/resources.cpp src/runtime.cpp src/secrets.cpp src/sha256.cpp
-platform/ps5/console_compat.cpp
+src/agent.cpp  src/agents.cpp src/core.cpp  src/delegation.cpp
+src/endpoints.cpp src/http.cpp src/json.cpp src/main.cpp src/paths.cpp
+src/plugins.cpp src/policy.cpp src/pool.cpp src/resources.cpp src/runtime.cpp
+src/secrets.cpp src/sha256.cpp platform/ps5/console_compat.cpp
 ```
 
 The static dependencies come from the PacBrew v0.41.1 image:
@@ -221,8 +221,17 @@ Agent profiles are plain JSON files in `/data/homebrew` by default, or in the
 directory passed to `--agents`. They are read on every launch, so editing one
 on the console changes the next run without a rebuild. A profile can set a
 description, `system_prompt` or `system_prompt_file`, model, temperature,
-`max_tokens` and `max_steps`; it cannot change roots, URL policy, secrets, or
-endpoint/plugin directories.
+`max_tokens` and `max_steps`; it cannot change roots, URL policy, secrets,
+endpoint/plugin directories or `delegation_max_depth`.
+
+A run exposing the `delegate` tool can hand a subtask to another profile. The
+child inherits the parent's tools and guards, so its filesystem, URL, secret and
+endpoint access cannot exceed the main config. `delegation_max_depth` (default
+2, `--max-depth` override) bounds nesting, and child steps/tokens come out of
+the parent's budget. Successful and refused calls are logged with the profile,
+depth and accounting. The host e2e suite exercises a full parent/child provider
+round trip; the console check below only proves the tool and profile paths are
+installed, because no model key is staged there.
 
 ```bash
 printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--list-agents\n' \
@@ -239,8 +248,9 @@ is the console check that works before an API key is staged. To run a turn, pass
 
 The 2026-11-18 runs used the web file manager to stage files and read
 `/data/ps5-harness-agent.log`. The core checks below, including the 1 GiB
-transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`.
-`docs/CONSOLE-REPORT.md` has the full transcript; the short form is:
+transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`;
+the delegation build is `0.1.0-d9c09b8`. `docs/CONSOLE-REPORT.md` has the full
+transcript; the short form is:
 
 | Check | Result |
 |---|---|
@@ -255,6 +265,7 @@ transfer, ran on `0.1.0-fd5d0ae`; the local-agent checks ran on `0.1.0-4d7499f`.
 | 1 GB transfer | `206` resume, 1,073,741,824 bytes, agent sha256 matched, renamed |
 | Free-space cap | 10 MB request on 2 MiB `/mnt` stopped at 1.71 MB |
 | Local agents | `--list-agents`/`--agent-info` read `/data/homebrew`; a profile edit changed the next run, no rebuild (`4d7499f`) |
+| Delegation | `delegate` listed with 7 tools; `--agent-info` printed `delegation_max_depth=2`; missing-profile delegate failed closed and logged `d9c09b8` |
 | Title install | not tested |
 
 ### Install as a title (untested sequence)
@@ -283,6 +294,8 @@ curl -T .deps/ps5-build/PHAR00001/sce_sys/icon0.png ftp://$PS5_HOST:2121/user/ap
 - That a title launch can receive the `--config`/`--prompt`/key it needs.
 - That `dlopen` loads a plugin `.so` inside a title sandbox (it works from the
   elfldr payload path).
+- That a delegated model turn runs on hardware. The tool and failure path are
+  console-verified, but no provider key was staged for a child run.
 - That USB writes work; no USB device was present.
 - That peak memory stays flat during a 1 GB transfer; the code streams, but no
   RSS figure was captured.

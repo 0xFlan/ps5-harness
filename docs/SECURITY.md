@@ -76,6 +76,13 @@ test that proves it must ship with the change.
 9. **No capability is inferred from privilege.** If the console denies a write,
    the tool reports the denial and the exact path; it never retries with a
    different mechanism to get around the sandbox.
+10. **Delegation never widens a capability.** A child profile only selects a
+    prompt, model, temperature, token cap and step cap. It receives a copy of
+    the parent's tools and therefore the same canonicalised roots, URL policy,
+    secrets and endpoint/plugin surface. Profiles cannot set boundary keys or
+    `delegation_max_depth`. Nesting depth, self-delegation and the shared
+    parent step/token pool are enforced before a child starts; refusals return
+    a clear error and are logged.
 
 ## Secret handling
 

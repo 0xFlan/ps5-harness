@@ -4,11 +4,12 @@ Run once per attempt. Copy the block at the bottom into a report and fill it in.
 A phase is not complete because a build succeeded elsewhere; it is complete when
 the relevant rows below are ticked on the console.
 
-The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4 and `0.1.0-4d7499f`
-for local agents, elfldr payload path) is recorded in `docs/CONSOLE-REPORT.md`:
-P2 boot/resources, P3 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks
-and the local-agent list/info checks are filled there; the title-install and USB
-rows remain open.
+The 2026-11-18 attempt (build `0.1.0-fd5d0ae` for P2–P4, `0.1.0-4d7499f`
+for local agents and `0.1.0-d9c09b8` for delegation, elfldr payload path) is
+recorded in `docs/CONSOLE-REPORT.md`: P2 boot/resources, P3
+TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks, the local-agent
+list/info checks and the delegation tool/failure checks are filled there; the
+title-install and USB rows remain open.
 
 ## Record first
 
@@ -119,6 +120,12 @@ received any arguments.
 - [ ] A plugin built outside this repo loads unmodified using only the SDK
       header and docs.
 - [ ] A manifest written from the docs alone produces a working tool.
+- [ ] `--list-agents` and `--agent-info` resolve staged profiles without a
+      provider key.
+- [ ] `--tools` lists `delegate`; `--call delegate` with a missing profile
+      returns `ok:false` and logs `delegate !`.
+- [ ] A real parent→child delegated model turn runs on hardware (requires a
+      staged provider key).
 - [ ] A plugin that crashes or hangs does not take the harness with it — record
       which isolation strategy was in place.
 
