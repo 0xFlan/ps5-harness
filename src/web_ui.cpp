@@ -121,6 +121,7 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
 .tool:hover{border-color:#2e5a89}
 .tool-name{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:#b9d9ff}
 .tool-desc{font-size:10px;color:var(--dim);margin-top:3px;line-height:1.4}
+.mobile-nav{display:none}
 .stats{border-top:1px solid var(--line);padding:15px 17px 18px;font-size:11px;color:var(--muted)}
 .stat{display:flex;justify-content:space-between;padding:3px 0}
 .stat b{color:#dcecff;font-weight:600}
@@ -142,11 +143,23 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
   border-radius:10px;padding:10px 13px;font-size:12px;color:#dcecff;opacity:0;
   transform:translateY(8px);transition:.2s;pointer-events:none;z-index:30}
 #toast.show{opacity:1;transform:none}
-@media (max-width:1150px){#app{grid-template-columns:220px minmax(0,1fr)}
-  .inspector{display:none}}
+@media (max-width:1150px){
+  #app{grid-template-columns:220px minmax(0,1fr)}
+  .inspector{display:none;position:fixed;right:0;top:72px;bottom:0;width:min(340px,100vw);z-index:12;box-shadow:-18px 0 50px rgba(0,0,0,.35)}
+  .inspector.mobile-open{display:flex}
+  .mobile-nav{display:flex;position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:14;
+    background:#0a1422;border:1px solid #27486e;border-radius:12px;padding:4px;gap:3px;
+    box-shadow:0 12px 35px rgba(0,0,0,.45)}
+  .mobile-nav button{border:0;background:transparent;color:var(--muted);border-radius:8px;padding:8px 13px;font-size:11px}
+  .mobile-nav button.active{background:#173354;color:#e9f4ff}
+  .messages{padding-bottom:82px}
+  .composer-wrap{padding-bottom:70px}
+}
 @media (max-width:760px){#app{grid-template-columns:1fr}.sidebar{display:none}
-  .topbar{padding:0 16px}.messages{padding:22px 16px}.composer-wrap{padding:0 12px 14px}
-  .status .pill{display:none}}
+  .topbar{padding:0 16px}.messages{padding:22px 16px 82px}.composer-wrap{padding:0 12px 70px}
+  .status .pill{display:none}
+  .inspector{top:72px;left:0;width:100vw}}
+@media (min-width:1151px){.mobile-nav{display:none}}
 </style>
 </head>
 <body>
@@ -193,6 +206,11 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
       </div>
     </section>
     <div class="composer-wrap">
+      <nav class="mobile-nav" aria-label="Workspace panels">
+        <button data-mobile="chat" class="active">Chat</button>
+        <button data-mobile="activity">Activity</button>
+        <button data-mobile="tools">Tools</button>
+      </nav>
       <form class="composer" id="composer">
         <textarea id="prompt" rows="2" placeholder="Ask the harness to inspect, build, edit or investigate…"></textarea>
         <div class="composer-row">
@@ -424,8 +442,23 @@ function selectTab(name) {
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   $('panel-activity').classList.toggle('active', name === 'activity');
   $('panel-tools').classList.toggle('active', name === 'tools');
-  if (window.innerWidth <= 1150) { /* inspector hidden by CSS */ }
+  if (window.innerWidth <= 1150) {
+    document.querySelector('.inspector').classList.add('mobile-open');
+    document.body.classList.add('mobile-panel');
+    document.querySelectorAll('[data-mobile]').forEach((b) => b.classList.toggle('active', b.dataset.mobile === name));
+  }
 }
+function closeMobilePanel() {
+  document.querySelector('.inspector').classList.remove('mobile-open');
+  document.body.classList.remove('mobile-panel');
+  document.querySelectorAll('[data-mobile]').forEach((b) => b.classList.toggle('active', b.dataset.mobile === 'chat'));
+}
+document.querySelectorAll('[data-mobile]').forEach((button) => {
+  button.onclick = () => {
+    if (button.dataset.mobile === 'chat') closeMobilePanel();
+    else selectTab(button.dataset.mobile);
+  };
+});
 document.querySelectorAll('.tabs button').forEach((button) => {
   button.onclick = () => selectTab(button.dataset.tab);
 });
