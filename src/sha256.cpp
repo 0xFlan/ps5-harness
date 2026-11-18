@@ -136,7 +136,9 @@ std::string sha256_file_hex(const std::string& path) {
     return std::string();
   }
   Sha256 hash;
-  char buffer[65536];
+  // Payload threads get a small console stack; a 64 KiB frame died before the
+  // result was printed even for a 577-byte file. Keep the read buffer modest.
+  char buffer[8192];
   std::size_t read = 0;
   while ((read = std::fread(buffer, 1, sizeof buffer, file)) > 0) {
     hash.update(buffer, read);
