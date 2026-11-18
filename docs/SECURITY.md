@@ -120,7 +120,8 @@ test that proves it must ship with the change.
     `/api/*` resource requires `Authorization: Bearer <token>`; the token is
     generated from `/dev/urandom` when not supplied, must be at least 16
     characters when supplied, is printed once to stderr (never to the log
-    file), and is compared without an early-exit length-independent loop. The
+    file), and is compared with a full-length constant-time check after the
+    length check. The
     page is public only so it can draw the token prompt. There are no cookies,
     no CORS headers, no wildcard origins and no unauthenticated state
     mutation. The server serialises turns with a per-process lock, caps request
