@@ -62,9 +62,10 @@ class Delegator : public std::enable_shared_from_this<Delegator> {
 
 // Binds one delegate tool to a depth and to the registry it belongs to. The
 // child registry is a copy of the parent tools minus delegate, plus a delegate
-// bound to depth + 1.
+// bound to depth + 1. The weak reference lets an abandoned deadline handler
+// outlive the run without touching a destroyed registry.
 Tool make_delegate_tool(std::shared_ptr<Delegator> delegator, int depth,
                         std::string current_profile,
-                        const ToolRegistry* registry);
+                        std::weak_ptr<const ToolRegistry> registry);
 
 }  // namespace ps5h

@@ -146,15 +146,15 @@ Json Delegator::run(const std::string& profile_name, const std::string& task,
       profile.has_system_prompt ? profile.system_prompt
                                 : config_.parent_system_prompt;
 
-  ToolRegistry child_tools;
+  auto child_tools = std::make_shared<ToolRegistry>();
   for (const Tool& tool : tools.tools()) {
     if (tool.name == "delegate") {
       continue;
     }
-    child_tools.add(tool);
+    child_tools->add(tool);
   }
-  child_tools.add(make_delegate_tool(shared_from_this(), child_depth,
-                                     profile.name, &child_tools));
+  child_tools->add(make_delegate_tool(shared_from_this(), child_depth,
+                                      profile.name, child_tools));
 
   if (config_.log) {
     config_.log("delegate -> profile=" + profile.name + " depth=" +
@@ -170,7 +170,7 @@ Json Delegator::run(const std::string& profile_name, const std::string& task,
     }
   };
 
-  Agent child(child_model, config_.http, child_tools, config_.env, config_.log,
+  Agent child(child_model, config_.http, *child_tools, config_.env, config_.log,
               child_say, config_.policy, config_.secrets, config_.budget);
   AgentOptions child_options;
   child_options.max_steps = requested_steps;
@@ -209,7 +209,7 @@ Json Delegator::run(const std::string& profile_name, const std::string& task,
 
 Tool make_delegate_tool(std::shared_ptr<Delegator> delegator, int depth,
                         std::string current_profile,
-                        const ToolRegistry* registry) {
+                        std::weak_ptr<const ToolRegistry> registry) {
   Tool tool;
   tool.name = "delegate";
   tool.description =
@@ -241,7 +241,14 @@ Tool make_delegate_tool(std::shared_ptr<Delegator> delegator, int depth,
       out["error"] = "delegate requires profile and task";
       return out;
     }
-    return delegator->run(profile, task, depth, current_profile, *registry);
+    const std::shared_ptr<const ToolRegistry> tools = registry.lock();
+    if (!tools) {
+      Json out = Json::object();
+      out["ok"] = false;
+      out["error"] = "delegate tool registry is no longer available";
+      return out;
+    }
+    return delegator->run(profile, task, depth, current_profile, *tools);
   };
   return tool;
 }

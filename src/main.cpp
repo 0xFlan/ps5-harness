@@ -719,6 +719,10 @@ int main(int argc, char** argv) {
   DownloadFn download = make_download_client();
 
   ToolRegistry registry;
+  // The registry lives on this stack for the whole run; the shared owner exists
+  // so delegate handlers can hold a weak, checked reference to it.
+  std::shared_ptr<ToolRegistry> registry_owner(&registry,
+                                               [](ToolRegistry*) {});
   BuiltinContext context;
   context.read_guard = read_guard;
   context.write_guard = write_guard;
@@ -756,7 +760,7 @@ int main(int argc, char** argv) {
   delegation.max_steps_locked = max_steps_from_flag;
   delegation.max_depth = max_delegation_depth;
   auto delegator = std::make_shared<Delegator>(std::move(delegation));
-  registry.add(make_delegate_tool(delegator, 0, agent_name, &registry));
+  registry.add(make_delegate_tool(delegator, 0, agent_name, registry_owner));
 
   if (!call_tool.empty()) {
     Json arguments = Json::object();
