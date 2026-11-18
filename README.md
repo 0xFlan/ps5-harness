@@ -466,7 +466,7 @@ PHAR00001/
   eboot.bin            fake SELF built from harness.elf
   harness.elf          the real agent ELF, for elfldr
   sce_sys/param.sfo    generated SFO binary (real header, entry table, keys)
-  sce_sys/icon0.png    generated 512x512 RGBA icon
+  sce_sys/icon0.png    generated 512x512 PS5-style tile (white H, blue bridge)
   sce_sys/param.json   metadata for installers that stage JSON instead
 ```
 
@@ -685,7 +685,8 @@ Not verified or not built:
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.
-- **No on-console UI.** CLI and `--call` only.
+- **No graphical on-console UI.** CLI and `--call` only; the shell-facing
+  surface is the generated `icon0.png` tile and the title metadata.
 - **No elevation helper**, so writes reach only what the process can already
   open.
 
