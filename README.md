@@ -669,15 +669,18 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
   (`401`), and listed all 20 tools after authentication. A real multi-turn
   `/api/chat` on the console called `sysctl` (`hw.ncpu` → `16`), `fs_search`
   (found `/data/homebrew/skills/console-note.txt:1:1`) and `file_info` (returned
-  sha256 `5e60306d…` for the running `/data/harness.elf`), then returned the
+  sha256 `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8`
+  and 9,727,192 bytes for the running `/data/harness.elf`), then returned the
   model's answer. The model endpoint was a local OpenAI-compatible stub exposed
   over HTTPS; the tools ran in the console process, not in the stub. The session
   exceeded its 4,096-character budget, produced two model summaries, continued
   answering, and reloaded 12 messages with the summary and final hash after the
   server was restarted. A 390×700 viewport showed the mobile Chat/Activity/Tools
   switcher, a full-width tool panel listing 20 tools, and no horizontal overflow.
-  The exact final harness hash and all measured counters are in
-  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
+  The PS5 link embeds a per-link build-id, so that hash identifies the deployed
+  release artifact rather than a byte-reproducible rebuild. The final harness
+  listener is on port 8789; the test listeners 8792–8795 are stopped, and the
+  remaining measured counters are in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
   CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
