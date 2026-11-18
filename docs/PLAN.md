@@ -7,7 +7,7 @@ blocked on a console, so P3 onward has not started. Nothing has run on hardware.
 |---|---|
 | P0 Repo hygiene | Done — license, `.gitignore`, `VERSION`, CI workflow, first commit. CI has not executed on a remote. |
 | P1 Core hardening | Done — A1–A7 closed with tests, A8 partial. Suites pass under ASan/UBSan; 20k fuzz iterations clean. |
-| P2 Console bring-up | Partial — the payload SDK cross-builds a fake-SELF `eboot.bin` on macOS (`make -C platform/ps5`); boot is blocked on a console. |
+| P2 Console bring-up | Partial — `make -C platform/ps5` emits an installable `PHAR00001` package (eboot, ELF, real `param.sfo`, real `icon0.png`) and `make test` validates it on the host; boot is blocked on a console. |
 | P3 Capabilities | **Blocked** — hardware only (TLS, `dlopen`, elevated write). |
 | P4 Tool surface | Partial — streaming downloader with resume and sha256 exists and is unit-tested; install/launch need P3. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
@@ -85,13 +85,25 @@ its build id and the console's free space. Nothing else is required of it yet.
 State: the toolchain decision is recorded — macOS host, SDK zip sha256
 `5fac6409…` (v0.45), LLVM 23.1.4 (details in `platform/ps5/BUILD.md`).
 `make -C platform/ps5` builds `platform/ps5/bringup.cpp` to an x86-64 FreeBSD
-ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py` (build
-`0.1.0-77c0bfe`). The payload now logs through a pre-opened fd with an app-folder
-fallback, records pid/uid/cwd/argv[0], and installs an async-signal-safe fatal
-handler so a crash writes its signal and address. Host checks: the same source
-built natively writes the log, and a forced `SIGSEGV` produces the `CRASH` line
-and exit 139. The remaining criterion — boot and log free space on the console —
-needs hardware; no part of this has run on a PS5.
+ELF and packs a fake-SELF `eboot.bin` with the SDK's `make_fself.py`. The build
+now emits one installable title folder, `.deps/ps5-build/PHAR00001/`, holding
+`eboot.bin`, `bringup.elf`, `sce_sys/param.sfo` and `sce_sys/icon0.png`
+(build `0.1.0-56c6056`). The title ID is chosen once in
+`platform/ps5/title.mk` (`PHAR00001`, homebrew range) and appears in the SFO,
+`param.json`, the package folder and the payload's `title=` log field.
+
+`param.sfo` is generated as a real SFO binary by `platform/ps5/tools/make_sfo.py`
+(the SDK has no writer); `icon0.png` is a real 512x512 RGBA PNG from
+`platform/ps5/tools/make_icon.py`. `make test` regenerates both and runs
+`build/ps5_package_test`, which parses the SFO back from disk (magic, version,
+entry table, required keys) and walks the PNG chunks and CRCs; with the SDK
+build present it also checks the fSELF and ELF headers. Negative cases (missing
+icon, corrupt SFO magic, truncated PNG, missing eboot) each exit 1.
+
+The payload logs through a pre-opened fd with an app-folder fallback, records
+pid/uid/cwd/argv[0], and installs an async-signal-safe fatal handler so a crash
+writes its signal and address. The remaining criterion — boot and log free space
+on the console — needs hardware; no part of this has run on a PS5.
 
 ## P3 — Console capabilities
 

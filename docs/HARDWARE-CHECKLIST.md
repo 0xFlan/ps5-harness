@@ -29,15 +29,26 @@ Without them a failure cannot be reproduced.
 
 ## Build and stage
 
-- [ ] Toolchain path used (container / VM / remote) recorded with image tag.
-- [ ] Payload SDK version recorded.
-- [ ] `libcurl` provenance recorded (PacBrew package name and pin).
-- [ ] Artifact contains `eboot.bin`, `sce_sys/icon0.png`, `sce_sys/pic0.dds`,
-      `sce_sys/pic1.dds`, `sce_sys/param.json`.
-- [ ] Title ID in `param.json` is unique on this console.
-- [ ] Artifact staged to the console by whatever method the loader expects.
+The package is `.deps/ps5-build/PHAR00001/`; `platform/ps5/BUILD.md` lists the
+hashes, the SFO keys and the exact commands.
+
+- [ ] Host OS, LLVM version and payload SDK version recorded.
+- [ ] `libcurl` provenance recorded (PacBrew package name and pin) when the full
+      harness is built for the target.
+- [ ] Package contains `eboot.bin`, `bringup.elf`, `sce_sys/param.sfo` and
+      `sce_sys/icon0.png`.
+- [ ] `make test` passed and its `ps5 package:` lines recorded (host check, not
+      a boot).
+- [ ] `TITLE_ID` (default `PHAR00001`) is unique on this console, or changed in
+      `platform/ps5/title.mk` and rebuilt; `param.sfo` and the folder agree.
+- [ ] Artifact staged to the console by whatever method the loader expects:
+      elfldr on 9021 (`nc -w 30 <ip> 9021 < …/bringup.elf`) or the FTP staging
+      sequence in `BUILD.md`. Record which was used.
 
 ## P2 — Boot
+
+P2 is incomplete until every row here is ticked on hardware. A host build and a
+passing package check do not satisfy any of them.
 
 - [ ] Title appears in the shell with the expected name and icon.
 - [ ] Launches without a system error dialog.

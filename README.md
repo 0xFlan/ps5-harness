@@ -149,22 +149,42 @@ plugin directories you would run as a program.
 ## Building for the PS5
 
 Partly done. `make -C platform/ps5` cross-compiles the P2 bring-up payload
-(`platform/ps5/bringup.cpp`) to an x86-64 FreeBSD ELF and packs a fake-SELF
-`eboot.bin` with the SDK's `make_fself.py`. The payload writes a log it can
-still append to if it crashes (build id, pid/uid/cwd, free space per mount, and
-one `CRASH … signal=N` line on a fault), so a failed first boot leaves evidence
-rather than a silent exit. `platform/ps5/BUILD.md` records the exact SDK and
-LLVM versions, artifact hashes, the command, and the console steps. Nothing has
-booted on a console.
+(`platform/ps5/bringup.cpp`) to an x86-64 FreeBSD ELF and emits one installable
+title folder, `.deps/ps5-build/PHAR00001/`:
+
+```
+PHAR00001/
+  eboot.bin            fake SELF, for a title loader
+  bringup.elf          the real ELF, for elfldr
+  sce_sys/param.sfo    generated SFO binary (real header, entry table, keys)
+  sce_sys/icon0.png    generated 512x512 RGBA icon
+  sce_sys/param.json   metadata for installers that stage JSON instead
+```
+
+The title identity lives in `platform/ps5/title.mk`; `PHAR00001` is a
+homebrew-range ID used consistently in the SFO, `param.json`, the package folder
+and the payload's `title=` log field. Both generated files come from in-repo
+tools (`platform/ps5/tools/`), because the payload SDK has no SFO or icon writer.
+`make test` regenerates them and parses them back from disk — SFO magic, version,
+entry table and required keys; PNG signature, chunk CRCs and 512x512 geometry —
+and checks the fSELF and ELF headers when the SDK build is present. A host-only
+checkout runs the asset part in `--assets-only` mode.
+
+The payload writes a log it can still append to if it crashes (build id, title
+ID, pid/uid/cwd, free space per mount, and one `CRASH … signal=N` line on a
+fault), so a failed first boot leaves evidence rather than a silent exit.
+`platform/ps5/BUILD.md` records the exact SDK and LLVM versions, artifact hashes,
+the package layout, and the console load/install commands. Nothing has booted on
+a console.
 
 Remaining:
 
 1. Link `libcurl` from PacBrew's pinned ports when the full harness is built for
    the target. Those archives are built for the payload SDK's libc, not a native
    title, and need the `fcntl` shim documented upstream.
-2. Change the placeholder `PPSA99177` title ID in `platform/ps5/param.json`, add
-   real `sce_sys/` assets (512x512 PNG, BC7 DDS), and check the fake-SELF
-   `--paid`/`--ptype` values against your loader.
+2. Check the fake-SELF `--paid`/`--ptype` values and the generated SFO key set
+   against your loader and firmware, using a working homebrew title as the
+   reference.
 3. Ship a CA bundle; verify the console clock before the first TLS request.
 4. Plugins become `.so` files loaded with `dlopen` — confirm on your firmware.
 
