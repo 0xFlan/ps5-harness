@@ -372,15 +372,58 @@ terminal. Input is handled by the browser that opens the page:
 
 The page reads the device running the browser. A keyboard, mouse, controller or
 headset paired only to the console is not forwarded to a remote browser by this
-payload. Web Speech and microphone permissions require HTTPS or localhost; the
-default `http://<console-ip>:8789` page explains that requirement when the mic
-button is pressed. Use a trusted HTTPS tunnel or a localhost port forward when
-voice input is required.
+payload. Web Speech and microphone permissions require HTTPS or localhost. The
+console now serves HTTPS directly on port 8790; the legacy HTTP listener on 8789
+and the new HTTP listener on 8791 explain the requirement when the mic button is
+pressed. See [HTTPS and microphone trust](#https-and-microphone-trust) for the
+certificate and trust steps.
 
 ```bash
 ./build/harness --config config.example.json --serve 8787 \
   --session /data/ps5h-session.json
+
+# Serve HTTP and HTTPS from the same console payload:
+./build/harness --config /data/ps5h-mission.json --serve 8791 \
+  --serve-tls 8790 --tls-cert /data/ps5h-cert.pem \
+  --tls-key /data/ps5h-key.pem --serve-token <token> \
+  --session /data/ps5h-mission-session-final.json
 ```
+
+### HTTPS and microphone trust
+
+The console serves the same token-gated workspace over both schemes. The current
+deployment uses:
+
+| Item | Value |
+|---|---|
+| HTTPS | `https://192.168.4.100:8790/` |
+| Retained HTTP | `http://192.168.4.100:8789/` (existing input build) |
+| New HTTP | `http://192.168.4.100:8791/` (the HTTPS process) |
+| Certificate | `/data/ps5h-cert.pem` (public) |
+| Private key | `/data/ps5h-key.pem` (keep on the console) |
+| Certificate identity | `CN=PS5 Harness`, SAN `192.168.4.100`, `127.0.0.1`, `localhost` |
+| SHA-256 fingerprint | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
+
+The certificate is self-signed (and valid as a local root), so treat it as a
+local CA and trust it on the client. On macOS, import `/data/ps5h-cert.pem` into
+Keychain Access and set **Always Trust**, or run:
+
+```bash
+security add-trusted-cert -r trustRoot \
+  -k ~/Library/Keychains/login.keychain-db ps5h-cert.pem
+```
+
+On iOS/iPadOS, install the certificate profile, then enable it under
+**Settings → General → About → Certificate Trust Settings**. Chrome and Edge use
+the operating system trust store. After trusting it, open the HTTPS URL without
+a certificate warning. Browsers still require the bearer token; TLS does not
+replace authentication.
+
+If the certificate is not trusted, clicking through the warning still yields a
+secure context and the microphone prompt, but that bypass is only for testing;
+trust the certificate for normal use. The HTTP pages remain available and show
+the HTTPS/localhost guidance instead of silently failing when the mic button is
+pressed.
 
 ## Plan mode, swarms and missions
 
@@ -699,25 +742,27 @@ Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
 recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
 `0.1.0-e6b6205`, final LAN workspace `0.1.0-final`, browser input layer
-`0.1.0-input`):
+`0.1.0-input`, HTTPS browser workspace `0.1.0-https`):
 
-- **Browser workspace and input** — `0.1.0-input` (source commit `8baf87a`)
-  serves the 53,581-byte UI at `--serve 8789` (`200`), rejects an unauthenticated
-  `/api/state` (`401`), and reports build `0.1.0-input` with all 20 tools and the
-  saved 12-message session (7,611 context chars, three compactions). The browser
-  input layer accepted physical keyboard and mouse input, an on-screen keyboard,
-  synthetic DualSense buttons and touchpad points, and mocked Web Speech
-  dictation; the controller opened the OSK and typed a key, and dictation
-  inserted text with no page errors. The page reads the device running the
-  browser, not peripherals paired only with the console. Microphone dictation
-  needs HTTPS or localhost, so the default LAN HTTP page shows guidance instead
-  of requesting the mic. The current `/data/harness.elf` is 9,759,960 bytes,
-  sha256 `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c`;
-  the superseded `0.1.0-final` artifact was 9,727,192 bytes, sha256
-  `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8`, and its
-  real console tool calls, compaction and 390×700 layout evidence remain in
-  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md). The current harness listener
-  is on port 8789; test listeners 8792–8795 are stopped.
+- **Browser workspace, input and HTTPS** — `0.1.0-https` (source commit
+  `d45b323`) serves the 53,581-byte UI over **HTTPS on 8790** (`200`), while the
+  retained **HTTP 8789** input-build listener and the new **HTTP 8791** listener
+  both still answer. The HTTPS certificate chain validates with
+  `curl --cacert /data/ps5h-cert.pem`; unauthenticated `/api/state` is `401` on
+  both schemes, and the authenticated state reports build `0.1.0-https` with all
+  20 tools and the unchanged 12-message session (7,611 context chars, three
+  compactions). A real browser on the console HTTPS origin reported
+  `window.isSecureContext: true`; clicking the mic button made exactly one
+  `getUserMedia` call and left Chrome's microphone permission at `prompt` under
+  “Preparing microphone…”, with no guidance fallback. With the permission granted
+  and a mocked final speech result, `dictated text` landed at the caret in the
+  composer and no page errors occurred. On the HTTP origin the same click
+  reported `HTTPS or localhost required`, opened the guidance, and made zero
+  microphone calls. The exact current `/data/harness.elf` is **9,761,576 bytes**,
+  sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b`.
+  The certificate and trust steps are in
+  [HTTPS and microphone trust](#https-and-microphone-trust); measured counters
+  are in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
   CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,

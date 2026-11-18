@@ -15,14 +15,14 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); `0.1.0-final` (LAN workspace baseline); **`0.1.0-input`** (current browser input layer) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); `0.1.0-final` (LAN workspace baseline); `0.1.0-input` (browser input layer); **`0.1.0-https`** (current HTTPS browser workspace) |
 
-Current artifacts on disk (`0.1.0-input`):
+Current artifacts on disk (`0.1.0-https`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `harness.elf` (running) | 9,759,960 | `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c` |
-| `eboot.bin` (not installed) | 7,766,816 | `d8b1a976913bf581210d66fc01b775c78e9630b49bcd00c473df8aa9b26e55bc` |
+| `harness.elf` (HTTPS process) | 9,761,576 | `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
+| `eboot.bin` (not installed) | 7,773,504 | `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
@@ -31,7 +31,8 @@ local-agent checks use `0.1.0-4d7499f`; the delegation checks use
 `0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`; the recon,
 plan, swarm and mission checks use `0.1.0-e0b6af4`; the parser-hardening smoke
 uses `0.1.0-e6b6205`; the home-screen tile is from `0.1.0-01c6cbc`;
-the browser input layer is from `0.1.0-input` (source commit `8baf87a`).
+the browser input layer is from `0.1.0-input` (source commit `8baf87a`);
+the HTTPS workspace is from `0.1.0-https` (source commit `d45b323`).
 
 ## How it was launched
 
@@ -631,6 +632,89 @@ harness listener; test listeners 8792–8795 remain stopped.
   BUILD_ID=0.1.0-input` — exit **0**; `ps5_package_test` passed.
 - Console artifact read back through `file_info` — hash and size match the table.
 - Headless browser input test — all five paths above, no page errors.
+
+## HTTPS workspace — `0.1.0-https`
+
+This build adds an optional TLS listener to the same browser workspace. It does
+not change the page, auth gate, tools or session format; it makes the existing
+page a secure context so Web Speech and the microphone permission prompt work.
+
+Built with:
+
+```bash
+PATH=/opt/homebrew/opt/llvm/bin:$PATH \
+  make -B -C platform/ps5 BUILD_ID=0.1.0-https
+```
+
+Source commit is `d45b323`; the documentation commit follows and does not
+change payload bytes.
+
+### Artifact and certificate
+
+| Item | Value |
+|---|---|
+| HTTPS URL | `https://192.168.4.100:8790/` |
+| New HTTP URL | `http://192.168.4.100:8791/` |
+| Retained HTTP URL | `http://192.168.4.100:8789/` (existing `0.1.0-input` process) |
+| Certificate | `/data/ps5h-cert.pem` |
+| Private key | `/data/ps5h-key.pem` |
+| Certificate | self-signed local root, `CN=PS5 Harness`; SAN `192.168.4.100`, `127.0.0.1`, `localhost` |
+| Certificate SHA-256 | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
+| `harness.elf` | 9,761,576 bytes, sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
+| `eboot.bin` (not installed) | 7,773,504 bytes, sha256 `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
+
+`curl --cacert /data/ps5h-cert.pem https://192.168.4.100:8790/` returned
+**200** and the page was 53,581 bytes. The self-signed certificate must be
+trusted by the browser for a warning-free normal session; the exact macOS and
+iOS steps are in the README’s **HTTPS and microphone trust** section. The
+browser evidence below used a test-profile certificate bypass because that
+temporary profile did not have the certificate installed; the TLS chain itself
+was validated by `curl --cacert`.
+
+### Access control and session
+
+| Check | HTTPS 8790 | HTTP 8791 | Legacy HTTP 8789 |
+|---|---:|---:|---:|
+| `GET /` | **200** | **200** | **200** |
+| `/api/state` without token | **401** | **401** | **401** |
+| Authenticated build | `0.1.0-https` | `0.1.0-https` | `0.1.0-input` |
+| Tools | **20** | **20** | **20** |
+| History | **12 messages** | **12 messages** | **12 messages** |
+
+The new process loaded the same `/data/ps5h-mission-session-final.json` and
+reported context **7,611 / 4,096** characters, **3 compactions**, and **10
+non-system messages** (12 total including the system prompt and summary). The
+legacy 8789 process remains up because its PID could not be identified safely
+without risking the loader or file manager; the new payload is reachable on both
+8790 and 8791, so the existing HTTP path did not break.
+
+### Browser checks on the deployed origin
+
+A Chromium test loaded the real console HTTPS URL, not the host build:
+
+| Path | Result |
+|---|---|
+| Secure context | `window.isSecureContext === true` |
+| Mic button | `permissionBefore=“prompt”`; one `getUserMedia` call; permission stayed `“prompt”`; status `Preparing microphone…`; no guidance fallback |
+| Mocked final result | `dictated text` landed at the composer caret; status `Listening…`; no page errors |
+| HTTP fallback | `window.isSecureContext === false` on legacy 8789; status `HTTPS or localhost required`; guidance opened; **0** `getUserMedia` calls |
+
+The mocked result used a fake `SpeechRecognition` object after the real
+microphone request/allowed device path. It did not prove a cloud speech
+recognition result; it proved the page’s result-to-caret insertion path.
+
+### Checks run
+
+- `make test` — exit **0** (host suite, including the corrected session test,
+  server test, package validation and provider e2e test).
+- `ps5_package_test .deps/ps5-build/PHAR00001` — exit **0**, package reports
+  `eboot.bin` 7,773,504 bytes and `harness.elf` 9,761,576 bytes.
+- TLS chain validation with `curl --cacert` — page **200**; certificate and
+  subject/SAN/fingerprint checked.
+- HTTPS/HTTP access-control table above — **401** unauthenticated, **20** tools,
+  **12** history messages.
+- Deployed-origin Chromium test — secure context, prompt, mocked dictation and
+  HTTP fallback as above, with **no page errors**.
 
 ## Still unverified
 
