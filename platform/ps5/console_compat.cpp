@@ -43,12 +43,10 @@ extern "C" int ps5h_console_nonblocking(int fd) {
 }
 
 extern "C" const char* ps5h_console_ca_bundle() {
-  static char path[512];
-  static bool resolved = false;
-  if (resolved) {
-    return path[0] == '\0' ? nullptr : path;
-  }
-  resolved = true;
+  // Re-probe on every call: a title that elevates after starting moves the CA
+  // list. Thread-local storage keeps parallel tool calls from sharing a path.
+  thread_local char path[512];
+  path[0] = '\0';
 
   const char* override_path = std::getenv("PS5H_CA_BUNDLE");
   if (readable(override_path)) {

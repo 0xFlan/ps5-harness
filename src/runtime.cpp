@@ -70,6 +70,13 @@ RuntimeBudget budget_from_profile(const ResourceProfile& profile) {
   if (profile.memory_available_known && profile.memory_available_bytes > 0) {
     memory = profile.memory_available_bytes;
   }
+  // A finite address-space or data limit is a harder cap than physical memory.
+  if (profile.limits.address_space_soft > 0) {
+    memory = std::min(memory, profile.limits.address_space_soft);
+  }
+  if (profile.limits.data_soft > 0) {
+    memory = std::min(memory, profile.limits.data_soft);
+  }
   if (memory == 0) {
     // No usable memory measurement: 64 MiB keeps the fallback bounded without
     // pretending to know the platform.

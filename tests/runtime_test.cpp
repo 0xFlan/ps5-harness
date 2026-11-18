@@ -99,6 +99,12 @@ int main() {
   check(small.file_read_bytes <= 4 * kMiB, "file reads stay inside the context budget");
   check(small.workers == 2, "small memory does not silently serialize the CPU count");
 
+  ResourceProfile address_limited =
+      make_profile(4, 16 * 1024 * kMiB, 8 * 1024 * kMiB, true, 1024);
+  address_limited.limits.address_space_soft = 8 * kMiB;
+  check(budget_from_profile(address_limited).buffered_response_bytes < 4 * kMiB,
+        "a finite RLIMIT_AS caps the buffered response budget");
+
   const RuntimeBudget fallback =
       budget_from_profile(make_profile(1, 0, 0, false, 0, 12345));
   check(fallback.buffered_response_bytes == 4 * kMiB,
