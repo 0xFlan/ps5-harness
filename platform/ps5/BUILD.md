@@ -215,6 +215,25 @@ provide the model key in the environment named by the config. The key is never
 read from the config file; a title launch cannot supply either the arguments or
 the environment.
 
+### Rest mode
+
+`harness.elf` is a one-shot payload, not a background service. `platform/ps5/Makefile:89`
+labels it "Loadable by elfldr on port 9021: ET_DYN, arguments supplied by a
+file: URI"; this section's launch sequence is the only runnable path. The
+process entry is `src/main.cpp:539`, and every command path returns
+(`:955` for `--call`, `:960` for `--tools`, `:966` for no prompt, `:974` for an
+agent run), so nothing survives to answer after `main` returns. There is no
+listener in `src/` — `bind(`, `listen(` and `accept(` appear only in the two
+test stubs — and `src/http.cpp:154` is an outbound libcurl client. Ports 9021
+and 8888 are the external elfldr and file-manager processes recorded in
+`docs/CONSOLE-REPORT.md:13`.
+
+Rest mode stops that userland, so the harness, elfldr and the file manager are
+not there to serve. The only path to work happening while the console sleeps is
+to queue it on an always-on host and run it after the console wakes and
+`harness.elf` is launched again. There is no wake-on-LAN, scheduler or
+background-service path in this build.
+
 ### Local agents
 
 Agent profiles are plain JSON files in `/data/homebrew` by default, or in the

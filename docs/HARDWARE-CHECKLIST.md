@@ -139,8 +139,9 @@ received any arguments.
 ## P6 — Session
 
 - [ ] Ten minutes of use with no terminal: browse, download, cancel, locate.
-- [ ] After the console wakes from rest mode, the payload is relaunched and
-      runs; do not expect it to have survived rest mode.
+- [ ] Queue work on an always-on host while the console is asleep, then run it
+      after wake once `harness.elf` is launched again. No row here is expected
+      to pass while the console is in rest mode; the payload does not survive.
 - [ ] Text entry is possible without a keyboard (or the LAN surface carried it).
 - [ ] Output renders without clipping on a TV at normal viewing distance.
 

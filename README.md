@@ -355,14 +355,33 @@ PacBrew pins, artifact hashes, the shims and the console commands.
 
 ### Rest mode
 
-The harness does not run in rest mode. It is a userland payload started by
-elfldr; entering rest mode suspends the console's userland and tears down the
-payload, the elfldr listener on 9021 and the file-manager listener on 8888. No
-tool call, skill, file edit or model turn can run until the console is awake and
-the payload is launched again. There is no wake-on-LAN, background service or
-scheduled-run path in this build, and installing `eboot.bin` as a title does not
-change that. Wake the console first, then relaunch. Nothing here keeps a process
-alive across rest mode.
+**No. The harness cannot run in rest mode, and this build has no path to make it
+do so.** It is a one-shot userland payload, not a service:
+
+- `platform/ps5/Makefile:89` builds `harness.elf` as an ET_DYN payload
+  "Loadable by elfldr on port 9021: ... arguments supplied by a file: URI."
+- `platform/ps5/BUILD.md:197` and `docs/CONSOLE-REPORT.md:36` document the only
+  runnable launch path: upload the ELF, then send elfldr a `file:` URI.
+- `src/main.cpp:539` is the process entry. Every path returns: `--call` at
+  `src/main.cpp:955`, `--tools` at `src/main.cpp:960`, a missing prompt at
+  `src/main.cpp:966`, and a normal model run at `src/main.cpp:974`. There is no
+  daemon loop after `main`.
+- The harness owns no listener. `src/` has no `bind(`, `listen(` or `accept(`;
+  the only ones in the tree are test stubs (`tests/hardening_test.cpp:63`,
+  `tests/e2e_agent_test.cpp:119`). `src/http.cpp:154` is an outbound libcurl
+  client, and `docs/SECURITY.md:27` records "no listening service by default".
+- Ports 9021 (elfldr) and 8888 (web file manager) are separate userland
+  processes, not servers started by the harness (`docs/CONSOLE-REPORT.md:13`).
+  Suspend stops the console's userland, so those processes and the harness are
+  not there to answer. Nothing in this repo asks the OS to keep them alive.
+
+A suspended console therefore has no `harness` process to receive a tool call,
+load a skill, edit a file or make a model turn. The only workable path for work
+while the console sleeps is to queue jobs on an always-on host and, after the
+console wakes, launch `harness.elf` and run the queue against it. There is no
+wake-on-LAN, scheduler or background-service path here, and installing
+`eboot.bin` as a title does not add one. This is also why verification kept the
+console awake; waking it needs a human at the machine.
 
 Remaining:
 
