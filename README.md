@@ -698,25 +698,26 @@ Verified on the host:
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
 recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
-`0.1.0-e6b6205`, final LAN workspace `0.1.0-final`):
+`0.1.0-e6b6205`, final LAN workspace `0.1.0-final`, browser input layer
+`0.1.0-input`):
 
-- **Browser workspace** — the final build `0.1.0-final` served the 26,044-byte
-  UI page at `--serve 8789` (`200`), rejected an unauthenticated `/api/state`
-  (`401`), and listed all 20 tools after authentication. A real multi-turn
-  `/api/chat` on the console called `sysctl` (`hw.ncpu` → `16`), `fs_search`
-  (found `/data/homebrew/skills/console-note.txt:1:1`) and `file_info` (returned
-  sha256 `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8`
-  and 9,727,192 bytes for the running `/data/harness.elf`), then returned the
-  model's answer. The model endpoint was a local OpenAI-compatible stub exposed
-  over HTTPS; the tools ran in the console process, not in the stub. The session
-  exceeded its 4,096-character budget, produced two model summaries, continued
-  answering, and reloaded 12 messages with the summary and final hash after the
-  server was restarted. A 390×700 viewport showed the mobile Chat/Activity/Tools
-  switcher, a full-width tool panel listing 20 tools, and no horizontal overflow.
-  The PS5 link embeds a per-link build-id, so that hash identifies the deployed
-  release artifact rather than a byte-reproducible rebuild. The final harness
-  listener is on port 8789; the test listeners 8792–8795 are stopped, and the
-  remaining measured counters are in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
+- **Browser workspace and input** — `0.1.0-input` (source commit `8baf87a`)
+  serves the 53,581-byte UI at `--serve 8789` (`200`), rejects an unauthenticated
+  `/api/state` (`401`), and reports build `0.1.0-input` with all 20 tools and the
+  saved 12-message session (7,611 context chars, three compactions). The browser
+  input layer accepted physical keyboard and mouse input, an on-screen keyboard,
+  synthetic DualSense buttons and touchpad points, and mocked Web Speech
+  dictation; the controller opened the OSK and typed a key, and dictation
+  inserted text with no page errors. The page reads the device running the
+  browser, not peripherals paired only with the console. Microphone dictation
+  needs HTTPS or localhost, so the default LAN HTTP page shows guidance instead
+  of requesting the mic. The current `/data/harness.elf` is 9,759,960 bytes,
+  sha256 `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c`;
+  the superseded `0.1.0-final` artifact was 9,727,192 bytes, sha256
+  `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8`, and its
+  real console tool calls, compaction and 390×700 layout evidence remain in
+  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md). The current harness listener
+  is on port 8789; test listeners 8792–8795 are stopped.
 - **Boot and resources** — `harness.elf` starts under elfldr, writes
   `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
   CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
@@ -800,12 +801,15 @@ Not verified or not built:
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.
-- **Browser workspace has no console model turn yet.** The page, auth gate,
-  tool catalogue and `sysctl` were checked on the console, but no browser was
-  opened against it, the phone layout was not inspected on hardware, and no
-  provider key was staged for a chat turn. Session-file persistence on the
-  console is likewise unverified. There is still no native on-console window;
-  `icon0.png` and the title metadata are the shell-facing surface.
+- **Browser input has no hardware controller or real dictation test.** A
+  headless browser loaded the current console page, and a host browser exercised
+  the physical keyboard, mouse/OSK, synthetic DualSense, touchpad pointer and
+  mocked speech paths. No controller was physically paired to the test browser,
+  no real microphone recognition ran, and console-paired peripherals are not
+  forwarded. Session-file persistence on the console is verified (12 messages
+  after restart); no provider key was staged for a browser chat turn. There is
+  still no native on-console window; `icon0.png` and the title metadata are the
+  shell-facing surface.
 - **No elevation helper**, so writes reach only what the process can already
   open.
 

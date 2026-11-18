@@ -15,14 +15,14 @@ here is still unverified.
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); **`0.1.0-final`** (final LAN workspace, this section) |
+| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); `0.1.0-final` (LAN workspace baseline); **`0.1.0-input`** (current browser input layer) |
 
-Current artifacts on disk (home-tile build `0.1.0-01c6cbc`):
+Current artifacts on disk (`0.1.0-input`):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,551,376 | `d63d12df492f56890575ddd7a6f0ad27e6959bae6be6f3b30b4e530147405114` |
-| `harness.elf` | 9,499,816 | `604f125bafdd4caa00d24f0a5c2ad5c29d94c2abd4a194fface7ff5be356d91a` |
+| `harness.elf` (running) | 9,759,960 | `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c` |
+| `eboot.bin` (not installed) | 7,766,816 | `d8b1a976913bf581210d66fc01b775c78e9630b49bcd00c473df8aa9b26e55bc` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
@@ -30,7 +30,8 @@ The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
 `0.1.0-c0f76b5`; the skills and edit checks use `0.1.0-653d046`; the recon,
 plan, swarm and mission checks use `0.1.0-e0b6af4`; the parser-hardening smoke
-uses `0.1.0-e6b6205`; the home-screen tile is from `0.1.0-01c6cbc`.
+uses `0.1.0-e6b6205`; the home-screen tile is from `0.1.0-01c6cbc`;
+the browser input layer is from `0.1.0-input` (source commit `8baf87a`).
 
 ## How it was launched
 
@@ -448,10 +449,10 @@ then run the queue through it. This report did not suspend the console — wakin
 it requires a human at the machine — so the limitation is established from the
 launch path and process lifetime above, not from a sleep test.
 
-## Final LAN workspace — `0.1.0-final`
+## 0.1.0-final LAN workspace (baseline)
 
-This is the final end-to-end run, after the browser-workspace and power-tool
-work. It is the only listener left on the console. The model was **stubbed**;
+This was the final end-to-end run before the browser input layer. It was the
+only listener left on the console at that release. The model was **stubbed**;
 the harness and every tool call were the real console build.
 
 ### Artifact and build
@@ -463,11 +464,11 @@ PATH=/opt/homebrew/opt/llvm/bin:$PATH \
 
 Source commit for the code in this run: `a4a947a` (the responsive-panel fix).
 The documentation commit follows and does not change payload bytes. The final
-artifact staged to `/data/harness.elf` was:
+artifact staged to `/data/harness.elf` for that release was:
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `harness.elf` (running) | 9,727,192 | `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
+| `harness.elf` (was running) | 9,727,192 | `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
 | `eboot.bin` (not installed) | 7,733,984 | `f65de21248d82a60bfc3ba5d0f606c0de522101683697e461757656b36b2c2f4` |
 
 `make -B` was rerun to check byte reproducibility; the PS5 linker embeds a
@@ -495,8 +496,7 @@ The console was started with `--serve 8789 --context-chars 4096` and a fresh
 session. A local OpenAI-compatible stub was exposed to the console over an HTTPS
 `trycloudflare.com` tunnel. The stub chose the tool calls and generated the
 summaries; it did **not** execute any tool. The harness performed every call on
-the console. The temporary stub and tunnel were stopped after the run; the
-listener itself remains up.
+the console. The temporary stub and tunnel were stopped after the run; the listener was later replaced by the input build below.
 
 Turn 1 returned **200**, used **4 steps**, and recorded:
 
@@ -547,8 +547,8 @@ wide and listed **20 tools**, and `document.documentElement.scrollWidth` was
 The old port-8789 listener and each test listener were identified separately
 and terminated with `SIGTERM`; the loader and the file manager were left alive.
 The final payload was then relaunched on **port 8789**, and ports 8792–8795 are
-closed. The only harness listener now is the documented
-`0.1.0-final` instance on 8789. The test token is not recorded here.
+closed. At that release, the only harness listener was the documented
+`0.1.0-final` instance on 8789; `0.1.0-input` now replaces it. The test token is not recorded here.
 
 ### Checks run
 
@@ -556,6 +556,81 @@ closed. The only harness listener now is the documented
   package validation and the provider e2e test).
 - `PATH=/opt/homebrew/opt/llvm/bin:$PATH make -B -C platform/ps5
   BUILD_ID=0.1.0-final` — exit **0**; `ps5_package_test` passed.
+
+## Input layer — `0.1.0-input`
+
+This build adds the browser input layer to the same authenticated workspace. It
+changes no tool, auth or policy path: all 20 tools and the bearer gate remain in
+force. The page is served by the console and interpreted by the browser that
+opens it.
+
+Source commit for the payload is `8baf87a`; the documentation commit follows and
+does not change payload bytes. Built with:
+
+```bash
+PATH=/opt/homebrew/opt/llvm/bin:$PATH \
+  make -B -C platform/ps5 BUILD_ID=0.1.0-input
+```
+
+| File | Bytes | sha256 |
+|---|---|---|
+| `harness.elf` (running) | 9,759,960 | `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c` |
+| `eboot.bin` (not installed) | 7,766,816 | `d8b1a976913bf581210d66fc01b775c78e9630b49bcd00c473df8aa9b26e55bc` |
+
+`make -B` was rerun and the PS5 linker again embedded a per-link build-id, so the
+table identifies the exact staged binary, not a reproducible link.
+
+### Endpoint, session and tools
+
+| Check | Measured |
+|---|---|
+| `GET /` | **200**, 53,581 bytes |
+| `GET /api/state` without a token | **401** `{"error":"unauthorized","ok":false}` |
+| `GET /api/state` with the bearer token | **200**, build `0.1.0-input` |
+| Registered tools | **20** |
+| Saved history | **12 messages**; context **7,611 / 4,096** chars, **3 compactions** |
+
+The saved `0.1.0-final` session was carried into the input build rather than
+reset, so the transcript and its summary remain available. The build opens the
+same Chat/Activity/Tools workspace and the same 20 tool schemas. A real console
+model turn was not rerun in this build; the earlier `sysctl`, `fs_search` and
+`file_info` evidence above is from `0.1.0-final`.
+
+### Browser input checks
+
+A headless Chromium test against the host build exercised the client-side paths
+without changing the console page:
+
+| Path | Result |
+|---|---|
+| Physical keyboard | Typed `keyboard works` into the composer |
+| Mouse + on-screen keyboard | Opened the OSK and clicked `q`; composer became `keyboard worksq` |
+| DualSense | Pill read `INPUT · DUALSENSE`; X opened the OSK, focus landed on `q`, A inserted `q` |
+| Touchpad | Synthetic touch `(0.25, 0.25)` moved the visible pointer to `800,500` in a 1280×800 viewport |
+| Dictation | Mocked Web Speech inserted `dictated text`; no page errors |
+
+The mocked dictation avoids a real permission prompt. On the default LAN HTTP
+origin `window.isSecureContext` is false, so the page shows help and does not
+request the microphone. Real microphone recognition, a physically connected
+controller and console-paired peripherals were not tested; the browser reads
+input from the device running the page, not from peripherals paired only to the
+PS5. Web Speech works on HTTPS or localhost.
+
+### Listener
+
+The old 8789 listener was stopped by signalling its individual PID, not by a
+name/group kill. The exact uploaded `0.1.0-input` ELF was then launched on 8789
+with the existing mission config, session and context limit. It is the only
+harness listener; test listeners 8792–8795 remain stopped.
+
+### Checks run
+
+- `make test` — exit **0** (host suite, including the input assertions,
+  package validation and provider e2e test).
+- `PATH=/opt/homebrew/opt/llvm/bin:$PATH make -B -C platform/ps5
+  BUILD_ID=0.1.0-input` — exit **0**; `ps5_package_test` passed.
+- Console artifact read back through `file_info` — hash and size match the table.
+- Headless browser input test — all five paths above, no page errors.
 
 ## Still unverified
 
