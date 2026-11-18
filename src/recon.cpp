@@ -286,7 +286,11 @@ void walk_tree(const std::string& directory, int depth, int max_depth,
       const ssize_t length = readlink(full.c_str(), target, sizeof target - 1);
       if (length > 0) {
         target[length] = '\0';
-        item["target"] = target;
+        if (looks_secret(target)) {
+          item["type"] = "denied";
+        } else {
+          item["target"] = target;
+        }
       }
     } else if (S_ISDIR(info.st_mode)) {
       item["type"] = "dir";
@@ -376,8 +380,21 @@ void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
           context.resources.memory_available_bytes);
       resources["memory_available_known"] =
           context.resources.memory_available_known;
+      // Other titles' private sandboxes are noise for a local map and can
+      // expose paths the agent has no business enumerating. Keep system mounts
+      // and candidates, cap the list, and report what was omitted.
       Json mounts = Json::array();
+      std::size_t sandbox_omitted = 0;
+      std::size_t cap_omitted = 0;
       for (const MountSpace& mount : context.resources.mounts) {
+        if (mount.path.rfind("/mnt/sandbox/", 0) == 0) {
+          ++sandbox_omitted;
+          continue;
+        }
+        if (mounts.size() >= 64) {
+          ++cap_omitted;
+          continue;
+        }
         Json item = Json::object();
         item["path"] = mount.path;
         item["type"] = mount.type;
@@ -385,6 +402,12 @@ void register_recon_tools(ToolRegistry& registry, const ReconContext& context) {
         item["total_bytes"] = static_cast<long long>(mount.total_bytes);
         mounts.push_back(std::move(item));
       }
+      resources["mounts_total"] = static_cast<long long>(
+          context.resources.mounts.size());
+      resources["mounts_shown"] = static_cast<long long>(mounts.size());
+      resources["sandbox_mounts_omitted"] =
+          static_cast<long long>(sandbox_omitted);
+      resources["mounts_omitted"] = static_cast<long long>(cap_omitted);
       resources["mounts"] = std::move(mounts);
       out["resources"] = std::move(resources);
 

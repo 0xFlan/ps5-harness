@@ -144,6 +144,7 @@ void test_path_guard() {
 
   // Secret paths are recognised after canonicalisation.
   assert(looks_secret(inside + "/config.json"));
+  assert(looks_secret(inside + "/ps5-harness.json"));
   assert(looks_secret(inside + "/creds/token.txt"));
   assert(!looks_secret(inside + "/games/doom.bin"));
 }

@@ -91,6 +91,37 @@ void test_env_and_tools(const std::string& root) {
   assert(tree->description.find("secret") != std::string::npos);
 }
 
+void test_env_mount_cap(const std::string& root) {
+  std::string error;
+  const PathGuard guard = PathGuard::from_roots({root}, &error);
+  assert(error.empty());
+  ReconContext context;
+  context.read_guard = guard;
+  context.build_id = "mount-cap";
+  for (int i = 0; i < 70; ++i) {
+    MountSpace mount;
+    mount.path = "/system/mount-" + std::to_string(i);
+    mount.type = "nullfs";
+    context.resources.mounts.push_back(mount);
+  }
+  for (int i = 0; i < 10; ++i) {
+    MountSpace mount;
+    mount.path = "/mnt/sandbox/NPXS00000_000/lane-" + std::to_string(i);
+    mount.type = "nullfs";
+    context.resources.mounts.push_back(mount);
+  }
+  ToolRegistry registry;
+  register_recon_tools(registry, context);
+  const Tool* env = registry.find("env_info");
+  assert(env != nullptr);
+  Json info = env->handler(Json::object());
+  assert(info["resources"]["mounts_total"].as_number() == 80);
+  assert(info["resources"]["mounts_shown"].as_number() == 64);
+  assert(info["resources"]["sandbox_mounts_omitted"].as_number() == 10);
+  assert(info["resources"]["mounts_omitted"].as_number() == 6);
+  assert(info["resources"]["mounts"].size() == 64);
+}
+
 void test_elf_and_strings(const std::string& root) {
   ToolRegistry registry;
   make_registry(root, &registry);
@@ -153,6 +184,8 @@ void test_tree_and_containment(const std::string& root) {
   const std::string outside = root + "-outside.txt";
   write_bytes(outside, "outside\n");
   assert(::symlink(outside.c_str(), (root + "/outside-link").c_str()) == 0);
+  assert(::symlink((root + "/credentials.txt").c_str(),
+                   (root + "/secret-link").c_str()) == 0);
 
   ToolRegistry registry;
   make_registry(root, &registry);
@@ -177,6 +210,10 @@ void test_tree_and_containment(const std::string& root) {
   assert(link != nullptr);
   assert((*link)["type"].as_string() == "link");
   assert((*link)["target"].as_string() == outside);
+  const Json* secret_link = find_entry(listing, tree_root + "/secret-link");
+  assert(secret_link != nullptr);
+  assert((*secret_link)["type"].as_string() == "denied");
+  assert(!secret_link->contains("target"));
 
   Json outside_args = Json::object();
   outside_args["path"] = "/etc/hosts";
@@ -206,6 +243,7 @@ int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   const std::string root = make_temp_dir();
   test_env_and_tools(root);
+  test_env_mount_cap(root);
   test_elf_and_strings(root);
   test_tree_and_containment(root);
   std::printf("recon tests passed\n");
