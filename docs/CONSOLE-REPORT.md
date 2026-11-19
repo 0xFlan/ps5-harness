@@ -445,11 +445,11 @@ it. That isolation choice was not tested with a crashing plugin.
 
 ## Rest mode — code evidence
 
-The harness is an elfldr payload, not a service that can outlive the console's
-userland. Since this report was captured, `--serve` added an explicit
-long-lived LAN mode; it still only runs when a human launches `harness.elf`, and
-it is not a rest-mode service. The evidence is in the tree, not only in this
-report:
+The harness is an elfldr payload, not a service that starts itself. Since this
+report was captured, `--serve` added an explicit long-lived LAN mode, and the
+listener loop now rebinds after a suspended process resumes. It still runs only
+when a human launches `harness.elf`; it is not started by rest mode. The
+evidence is in the tree, not only in this report:
 
 | Claim | Reference |
 |---|---|
@@ -458,17 +458,29 @@ report:
 | The harness process ends after one command or one agent run | `src/main.cpp:614` (entry); returns at `:1191` (mission), `:1196-1214` (`--call`), `:1217-1219` (`--tools`), `:1283-1286` (no prompt), `:1293-1295` (agent run); `--serve` blocks at `:1279` |
 | The harness opens no listener by default | `src/server.cpp` binds only in the explicit `--serve` path; `src/http.cpp` remains the outbound libcurl client |
 | `--serve` requires a bearer token and is opt-in | `src/server.cpp` rejects every unauthenticated `/api/*` request; `docs/SECURITY.md` invariant 15 |
-| It is not a rest-mode service | the listener starts only after a human launches the payload with `--serve`; nothing registers it with the OS |
+| It does not start itself from rest mode | the listener starts only after a human launches the payload with `--serve`; nothing registers it as a wake source or service |
+| A suspended process rebinds its listeners after resume | `src/server.cpp` `poll()` loop; triggers are `SIGCONT`, a 5-second-or-more wall-clock jump, and a change in the non-loopback IPv4 address set; host `server_test` holds the network down after `SIGCONT`, proves HTTP/UDP still answer from the old listeners, releases it, then verifies the rebind and a second resume |
 | 9021 and 8888 belong to other processes | `docs/CONSOLE-REPORT.md`, Environment table (elfldr and the web file manager) |
 
-Suspending the console stops that userland, so the harness process, elfldr and
-the file manager are not running to receive anything. Nothing in the repository
-registers a background service, wake source or scheduler, so no tool call,
-skill, edit or model turn can execute while the console sleeps.
+Suspending the console stops execution. Current PS5 reports say the userland
+process is frozen with its memory intact, while its listening sockets are
+closed; the new listener loop handles that case. It detects `SIGCONT`, a
+wall-clock jump of at least five seconds, or a change in the non-loopback IPv4
+address set. It keeps still-valid HTTP, HTTPS and UDP listeners in the poll set
+while the network is down, checks the network at a bounded one-second interval,
+and retries bind failures with 2/4/8/16/30-second backoff. A second resume
+resets the wait. If a particular firmware or loader actually terminates the
+process, the harness, elfldr and the file manager are gone and must be
+relaunched. No separate payload is needed for the suspend case; a
+resident/kernel component would only be relevant to process termination.
+Nothing in the repository registers a background service, wake source or
+scheduler, so no tool call, skill, edit or model turn can execute while the
+console sleeps.
 
 The only workable path for work during sleep is an always-on host queue: keep
-the jobs on a machine that stays awake, wake the console, launch `harness.elf`,
-then run the queue through it. This report did not suspend the console — waking
+the jobs on a machine that stays awake, wake the console, then run the queue
+through the harness. If the suspended process survived, the listener rebinds
+without a relaunch; otherwise launch `harness.elf` first. This report did not suspend the console — waking
 it requires a human at the machine — so the limitation is established from the
 launch path and process lifetime above, not from a sleep test.
 
@@ -940,6 +952,9 @@ recognition result; it proved the page’s result-to-caret insertion path.
   the tools, parser, fail-closed runner and one-step failure are
   console-verified, but no provider call was made.
 - The exact CA bundle path and resolver used.
-- Rest mode. The harness is a userland payload; it has no path to keep running
-  while the console is suspended, and this build was not tested by entering
-  rest mode. Wake the console and relaunch the payload.
+- Rest mode. The harness is a userland payload and does not execute while the
+  console is suspended. The listener-rebind path is covered by a host
+  `SIGCONT`/network-gate test, but this build was not tested by entering rest
+  mode. A hardware run must record whether the jailbreak/process survived and
+  whether HTTP, HTTPS and UDP discovery return after wake; if not, relaunch
+  the payload.

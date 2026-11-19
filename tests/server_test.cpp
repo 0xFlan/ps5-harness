@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -79,14 +80,22 @@ std::string udp_discover(int port) {
 
 std::string request(int port, const std::string& method, const std::string& path,
                     const std::string& token,
-                    const std::string& body = std::string()) {
+                    const std::string& body = std::string(),
+                    bool tolerate_failure = false) {
   const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
   assert(fd >= 0);
+  timeval timeout{};
+  timeout.tv_sec = 2;
+  assert(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) == 0);
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = htons(static_cast<unsigned short>(port));
-  assert(::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) == 0);
+  if (::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0) {
+    ::close(fd);
+    if (!tolerate_failure) assert(false);
+    return std::string();
+  }
   std::string head = method + " " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\n";
   if (!token.empty()) head += "Authorization: Bearer " + token + "\r\n";
   if (!body.empty()) {
@@ -94,11 +103,19 @@ std::string request(int port, const std::string& method, const std::string& path
             std::to_string(body.size()) + "\r\n";
   }
   head += "Connection: close\r\n\r\n";
-  assert(::send(fd, head.data(), head.size(), 0) ==
-         static_cast<ssize_t>(head.size()));
+  const ssize_t head_sent = ::send(fd, head.data(), head.size(), 0);
+  if (head_sent != static_cast<ssize_t>(head.size())) {
+    ::close(fd);
+    if (!tolerate_failure) assert(false);
+    return std::string();
+  }
   if (!body.empty()) {
-    assert(::send(fd, body.data(), body.size(), 0) ==
-           static_cast<ssize_t>(body.size()));
+    const ssize_t body_sent = ::send(fd, body.data(), body.size(), 0);
+    if (body_sent != static_cast<ssize_t>(body.size())) {
+      ::close(fd);
+      if (!tolerate_failure) assert(false);
+      return std::string();
+    }
   }
   std::string response;
   char buffer[4096];
@@ -107,6 +124,7 @@ std::string request(int port, const std::string& method, const std::string& path
     response.append(buffer, static_cast<std::size_t>(got));
   }
   ::close(fd);
+  if (got < 0 && !tolerate_failure) assert(false);
   return response;
 }
 
@@ -133,8 +151,10 @@ int wait_for_server(int port) {
   return -1;
 }
 
-int child_server(int port, int discovery_port, const std::string& token) {
+int child_server(int port, int discovery_port, const std::string& token,
+                 const std::string& network_gate) {
   std::freopen("/dev/null", "w", stderr);
+  assert(::setenv("PS5H_TEST_NETWORK_GATE", network_gate.c_str(), 1) == 0);
   ToolRegistry registry;
   ModelConfig config;
   config.base_url = "http://127.0.0.1:9/v1";
@@ -174,16 +194,52 @@ int child_server(int port, int discovery_port, const std::string& token) {
   return run_server(server, agent, session, options, registry, activity, quiet);
 }
 
+void set_network_gate(const std::string& path, bool down) {
+  if (down) {
+    const int fd = ::open(path.c_str(), O_CREAT | O_WRONLY, 0600);
+    assert(fd >= 0);
+    assert(::write(fd, "x", 1) == 1);
+    ::close(fd);
+    return;
+  }
+  assert(::unlink(path.c_str()) == 0);
+}
+
+long long wait_for_generation(int port, const std::string& token,
+                              long long previous, int timeout_ms = 10000) {
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeout_ms);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const std::string response =
+        request(port, "GET", "/api/health", token, std::string(), true);
+    if (response.find("200 OK") != std::string::npos) {
+      try {
+        const Json health = Json::parse(body_of(response));
+        const long long generation = health["listener_generation"].as_number();
+        if (generation > previous) return generation;
+      } catch (...) {
+        // A partial response is expected across the close/rebind boundary.
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  assert(false);
+  return previous;
+}
+
 }  // namespace
 
 int main() {
   const int port = free_port();
   const int discovery_port = free_udp_port();
   const std::string token = "0123456789abcdef";
+  const std::string network_gate =
+      "/tmp/ps5h-server-test-network-gate-" + std::to_string(::getpid());
+  ::unlink(network_gate.c_str());
   const pid_t child = ::fork();
   assert(child >= 0);
   if (child == 0) {
-    _exit(child_server(port, discovery_port, token));
+    _exit(child_server(port, discovery_port, token, network_gate));
   }
   assert(wait_for_server(port) == 0);
 
@@ -205,6 +261,8 @@ int main() {
   assert(page_body.find("id=\"reconnect\"") != std::string::npos);
   assert(page_body.find("Console connection lost") != std::string::npos);
   assert(page_body.find("id=\"reconnect-url\"") != std::string::npos);
+  assert(page_body.find("If the console went to rest mode") != std::string::npos);
+  assert(page_body.find("If the console was restarted") == std::string::npos);
 
   const std::string icon = request(port, "GET", "/tile-icon.png", "");
   assert(icon.find("200 OK") != std::string::npos);
@@ -251,6 +309,9 @@ int main() {
   const Json health_json = Json::parse(body_of(health));
   assert(health_json["ok"].as_bool());
   assert(health_json["home_tile"]["title_id"].as_string() == "HARN00001");
+  const long long generation_before_resume =
+      health_json["listener_generation"].as_number();
+  assert(generation_before_resume == 1);
 
   const std::string chat = request(
       port, "POST", "/api/chat", token,
@@ -265,6 +326,56 @@ int main() {
   assert(history.find("200 OK") != std::string::npos);
   const Json history_json = Json::parse(body_of(history));
   assert(history_json["messages"].size() == 3);  // system, user, assistant
+
+  // Rest mode is a freeze, not a clean close. SIGCONT is one resume signal a
+  // PS5 payload may receive; the server also watches the wall clock and the
+  // non-loopback IPv4 address set. Hold the simulated network down across the
+  // resume:
+  // the old listeners must keep serving while the supervisor waits, the
+  // generation must not advance until the network is back, and the bind must
+  // then succeed. The gate is a test-only server.cpp hook.
+  set_network_gate(network_gate, true);
+  assert(::kill(child, SIGCONT) == 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  for (int i = 0; i < 8; ++i) {
+    const std::string during =
+        request(port, "GET", "/api/health", token, std::string(), true);
+    assert(during.find("200 OK") != std::string::npos);
+    const Json during_json = Json::parse(body_of(during));
+    assert(during_json["listener_generation"].as_number() ==
+           generation_before_resume);
+    assert(Json::parse(udp_discover(discovery_port))["http_port"].as_number() ==
+           port);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+
+  set_network_gate(network_gate, false);
+  const long long generation_after_first =
+      wait_for_generation(port, token, generation_before_resume);
+  const std::string resumed = request(port, "GET", "/api/health", token);
+  assert(resumed.find("200 OK") != std::string::npos);
+  assert(Json::parse(body_of(resumed))["listener_generation"].as_number() ==
+         generation_after_first);
+  assert(Json::parse(udp_discover(discovery_port))["http_port"].as_number() == port);
+  const std::string resumed_history = request(port, "GET", "/api/history", token);
+  assert(resumed_history.find("200 OK") != std::string::npos);
+  assert(Json::parse(body_of(resumed_history))["messages"].size() == 3);
+
+  // A second wake must not stay pinned behind the first attempt's retry. Keep
+  // the network down while the signal arrives, then restore it and require a
+  // second successful generation.
+  set_network_gate(network_gate, true);
+  assert(::kill(child, SIGCONT) == 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  const std::string second_wake =
+      request(port, "GET", "/api/health", token, std::string(), true);
+  assert(second_wake.find("200 OK") != std::string::npos);
+  assert(Json::parse(body_of(second_wake))["listener_generation"].as_number() ==
+         generation_after_first);
+  set_network_gate(network_gate, false);
+  const long long generation_after_second =
+      wait_for_generation(port, token, generation_after_first);
+  assert(generation_after_second > generation_after_first);
 
   ::kill(child, SIGTERM);
   int status = 0;

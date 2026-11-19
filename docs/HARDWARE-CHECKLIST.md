@@ -12,7 +12,13 @@ home-screen tile, elfldr payload path) is recorded in `docs/CONSOLE-REPORT.md`: 
 boot/resources, P3 TLS/`dlopen`/writes, the P4 resume/1 GB/free-space checks,
 the local-agent list/info checks, the delegation tool/failure checks and the
 skill/edit checks are filled there; the title-install and USB rows remain open.
-The harness is a userland payload and is not expected to survive rest mode.
+The harness is a userland payload. PS5 rest mode usually freezes it rather than
+killing it, but closes its listening sockets. The in-process listener loop
+detects `SIGCONT`, a wall-clock jump of at least five seconds, or an IPv4
+network change; it keeps still-valid HTTP/HTTPS/UDP listeners serving during
+the outage and retries binds at 2s, 4s, 8s, 16s and a 30s cap. A terminated
+process or lost jailbreak is not covered. The rebind path needs a hardware run
+before automatic resume is treated as verified.
 
 ## Record first
 
@@ -183,9 +189,13 @@ Run these on the same payload build. They are read-only except where noted.
 - [ ] Stop and relaunch the payload with the same fixed token, session file and
       a different `--serve` port; discovery reports the new port, the browser
       reconnect banner accepts the new address, and the transcript resumes.
-- [ ] After an actual rest-mode wake, record whether the jailbreak survived;
-      re-jailbreak/relaunch as needed and complete the recovery runbook. The
-      payload is not expected to answer while asleep.
+- [ ] After an actual rest-mode wake, record whether the jailbreak and the
+      harness process survived. Do not relaunch first: wait a few seconds, then
+      retry the original URL and check `/api/health` for an increased
+      `listener_generation`. If it answers, confirm the saved transcript and
+      both HTTP/HTTPS plus UDP discovery. If it does not, re-jailbreak/relaunch
+      and complete the recovery runbook. Nothing is expected to answer while
+      the console is asleep.
 - [ ] A provider key is staged and a full turn runs through the browser UI;
       then restart the payload and confirm the transcript resumes from the
       session file.
@@ -193,8 +203,10 @@ Run these on the same payload build. They are read-only except where noted.
       remain usable at that width.
 - [ ] Ten minutes of use with no terminal: browse, download, cancel, locate.
 - [ ] Queue work on an always-on host while the console is asleep, then run it
-      after wake once `harness.elf` is launched again. No row here is expected
-      to pass while the console is in rest mode; the payload does not survive.
+      after wake. If the suspended harness survived, the queued work can run
+      after the listener rebinds without relaunching; if the process or
+      jailbreak was lost, relaunch `harness.elf` first. No row here can pass
+      while the console is asleep.
 - [ ] Text entry is possible without a keyboard (or the LAN surface carried it).
 - [ ] Output renders without clipping on a TV at normal viewing distance.
 

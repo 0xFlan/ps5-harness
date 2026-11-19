@@ -2,7 +2,10 @@
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/in.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -78,9 +81,11 @@ struct Shared {
   std::atomic<bool> usage_reported{false};
   std::unique_ptr<HomeTile> home_tile;
   // Filled after the listeners have chosen their real ports. Discovery must
-  // report the ports that actually opened, not the requested defaults.
-  int http_port = 0;
-  int https_port = 0;
+  // report the ports that actually opened, not the requested defaults. The
+  // values change when a suspended console resumes and the sockets are rebound.
+  std::atomic<int> http_port{0};
+  std::atomic<int> https_port{0};
+  std::atomic<unsigned long long> listener_generation{0};
   long long started_at = 0;
 };
 
@@ -266,6 +271,86 @@ std::string local_address() {
   return addresses.front();
 }
 
+// A listener can survive a PS5 rest cycle in a defunct state: the process is
+// frozen, the system closes the underlying socket, and the fd still looks
+// usable to the payload. The network signature is part of resume detection;
+// an empty value means there is no non-loopback IPv4 interface yet.
+std::string network_signature() {
+#if defined(PS5H_TEST_HOOKS)
+  // Host tests need to hold the network down without touching the machine's
+  // interfaces. The gate is compiled only into test builds.
+  const char* gate = std::getenv("PS5H_TEST_NETWORK_GATE");
+  if (gate != nullptr && gate[0] != '\0' && ::access(gate, F_OK) == 0) {
+    return "test-offline";
+  }
+#endif
+  struct ifaddrs* interfaces = nullptr;
+  if (::getifaddrs(&interfaces) != 0) return std::string();
+  std::string signature;
+  for (struct ifaddrs* it = interfaces; it != nullptr; it = it->ifa_next) {
+    if (it->ifa_addr == nullptr || it->ifa_addr->sa_family != AF_INET) continue;
+    if ((it->ifa_flags & IFF_UP) == 0 || (it->ifa_flags & IFF_LOOPBACK) != 0) continue;
+    const auto* address = reinterpret_cast<const sockaddr_in*>(it->ifa_addr);
+    char text[INET_ADDRSTRLEN] = {};
+    if (::inet_ntop(AF_INET, &address->sin_addr, text, sizeof text) == nullptr) continue;
+    if (!signature.empty()) signature.push_back(',');
+    signature += text;
+  }
+  ::freeifaddrs(interfaces);
+  return signature;
+}
+
+bool network_ready() {
+#if defined(PS5H_TEST_HOOKS)
+  const char* gate = std::getenv("PS5H_TEST_NETWORK_GATE");
+  if (gate != nullptr && gate[0] != '\0' && ::access(gate, F_OK) == 0) {
+    return false;
+  }
+#endif
+  // Do not treat loopback as a usable LAN merely because it is up on a console
+  // whose Ethernet/Wi-Fi interface is down. On a host with no non-loopback
+  // interface at all, loopback is still enough to reopen for a local test.
+  struct ifaddrs* interfaces = nullptr;
+  if (::getifaddrs(&interfaces) != 0) return false;
+  bool loopback = false;
+  bool non_loopback = false;
+  for (struct ifaddrs* it = interfaces; it != nullptr; it = it->ifa_next) {
+    if (it->ifa_addr == nullptr || it->ifa_addr->sa_family != AF_INET) continue;
+    if ((it->ifa_flags & IFF_LOOPBACK) != 0) {
+      if ((it->ifa_flags & IFF_UP) != 0) loopback = true;
+      continue;
+    }
+    non_loopback = true;
+    if ((it->ifa_flags & IFF_UP) != 0) {
+      ::freeifaddrs(interfaces);
+      return true;
+    }
+  }
+  ::freeifaddrs(interfaces);
+  return !non_loopback && loopback;
+}
+
+// SIGCONT is delivered when the console resumes. Keep the handler limited to
+// one async-signal-safe flag assignment; the listener loop consumes it on its
+// next pass. A second resume after a failed rebind sets the flag again.
+volatile sig_atomic_t g_resume_requested = 0;
+
+extern "C" void on_resume_signal(int) {
+  g_resume_requested = 1;
+}
+
+void install_resume_handler(LogFn log) {
+  struct sigaction action {};
+  action.sa_handler = on_resume_signal;
+  sigemptyset(&action.sa_mask);
+  // No SA_RESTART: poll() should return EINTR so the loop sees the resume
+  // promptly instead of waiting for its full timeout.
+  action.sa_flags = 0;
+  if (::sigaction(SIGCONT, &action, nullptr) != 0) {
+    log("serve: SIGCONT handler unavailable; using time and network checks");
+  }
+}
+
 std::string one_line(const std::string& value, std::size_t limit) {
   std::string out;
   out.reserve(value.size());
@@ -316,17 +401,18 @@ Json discovery_json(const Shared& shared) {
   out["protocol"] = 1;
   out["build"] = shared.options.build_id;
   out["title_id"] = shared.options.home_tile.title_id;
-  out["http_port"] = shared.http_port;
-  out["https_port"] = shared.https_port;
+  out["http_port"] = shared.http_port.load();
+  out["https_port"] = shared.https_port.load();
   out["started_at"] = shared.started_at;
   Json addresses = Json::array();
   Json urls = Json::array();
   for (const std::string& address : local_addresses()) {
     addresses.push_back(address);
-    urls.push_back("http://" + address + ":" + std::to_string(shared.http_port) + "/");
-    if (shared.https_port > 0) {
+    urls.push_back("http://" + address + ":" +
+                   std::to_string(shared.http_port.load()) + "/");
+    if (shared.https_port.load() > 0) {
       urls.push_back("https://" + address + ":" +
-                     std::to_string(shared.https_port) + "/");
+                     std::to_string(shared.https_port.load()) + "/");
     }
   }
   out["addresses"] = addresses;
@@ -482,6 +568,8 @@ void handle_connection(int fd, Shared* shared) {
       Json body = Json::object();
       body["ok"] = true;
       body["build"] = shared->options.build_id;
+      body["listener_generation"] = static_cast<long long>(
+          shared->listener_generation.load());
       if (shared->home_tile) body["home_tile"] = shared->home_tile->state();
       respond_json(fd, 200, body);
     }
@@ -719,66 +807,73 @@ int open_discovery_socket(int port, std::string* error) {
   return fd;
 }
 
-void serve_discovery(int fd, Shared* shared) {
+bool serve_discovery_once(int fd, Shared* shared) {
   char buffer[128];
-  while (true) {
-    sockaddr_in peer{};
-    socklen_t peer_length = sizeof peer;
-    const ssize_t got = ::recvfrom(fd, buffer, sizeof buffer - 1, 0,
-                                   reinterpret_cast<sockaddr*>(&peer),
-                                   &peer_length);
-    if (got < 0) {
-      if (errno == EINTR) continue;
-      shared->log("discovery: receive failed");
-      break;
-    }
-    const std::string query = trim(std::string(buffer, static_cast<std::size_t>(got)));
-    if (query != "PS5H_DISCOVER_V1") continue;
-    const std::string answer = discovery_json(*shared).dump();
-    ::sendto(fd, answer.data(), answer.size(), 0,
-             reinterpret_cast<sockaddr*>(&peer), peer_length);
+  sockaddr_in peer{};
+  socklen_t peer_length = sizeof peer;
+  const ssize_t got = ::recvfrom(fd, buffer, sizeof buffer - 1, 0,
+                                 reinterpret_cast<sockaddr*>(&peer),
+                                 &peer_length);
+  if (got < 0) {
+    if (errno == EINTR || errno == EAGAIN) return true;
+    shared->log("discovery: receive failed");
+    return false;
   }
+  const std::string query = trim(std::string(buffer, static_cast<std::size_t>(got)));
+  if (query != "PS5H_DISCOVER_V1") return true;
+  const std::string answer = discovery_json(*shared).dump();
+  ::sendto(fd, answer.data(), answer.size(), 0,
+           reinterpret_cast<sockaddr*>(&peer), peer_length);
+  return true;
 }
 
-void accept_connections(int listener, SSL_CTX* tls_context, Shared* shared) {
-  while (true) {
-    sockaddr_in peer{};
-    socklen_t peer_length = sizeof peer;
-    const int fd = ::accept(listener, reinterpret_cast<sockaddr*>(&peer), &peer_length);
-    if (fd < 0) {
-      if (errno == EINTR) continue;
-      shared->log("serve: accept failed");
-      break;
-    }
-    if (tls_context == nullptr) {
-      std::thread([fd, shared]() { handle_connection(fd, shared); }).detach();
-      continue;
-    }
-    SSL* ssl = SSL_new(tls_context);
-    if (ssl == nullptr || SSL_set_fd(ssl, fd) != 1) {
-      if (ssl != nullptr) SSL_free(ssl);
-      ::close(fd);
-      shared->log("serve: cannot create TLS connection");
-      continue;
-    }
-    std::thread([fd, ssl, shared]() {
-      if (SSL_accept(ssl) != 1) {
-        shared->log("serve: TLS handshake failed");
-        SSL_free(ssl);
-        ::close(fd);
-        return;
-      }
-      tls_connection = ssl;
-      struct TlsGuard {
-        SSL* ssl;
-        ~TlsGuard() {
-          tls_connection = nullptr;
-          SSL_free(ssl);
-        }
-      } guard{ssl};
-      handle_connection(fd, shared);
-    }).detach();
+bool accept_http(int listener, Shared* shared) {
+  sockaddr_in peer{};
+  socklen_t peer_length = sizeof peer;
+  const int fd = ::accept(listener, reinterpret_cast<sockaddr*>(&peer), &peer_length);
+  if (fd < 0) {
+    if (errno == EINTR || errno == EAGAIN || errno == ECONNABORTED) return true;
+    shared->log("serve: accept failed");
+    return false;
   }
+  std::thread([fd, shared]() { handle_connection(fd, shared); }).detach();
+  return true;
+}
+
+bool accept_tls(int listener, SSL_CTX* tls_context, Shared* shared) {
+  sockaddr_in peer{};
+  socklen_t peer_length = sizeof peer;
+  const int fd = ::accept(listener, reinterpret_cast<sockaddr*>(&peer), &peer_length);
+  if (fd < 0) {
+    if (errno == EINTR || errno == EAGAIN || errno == ECONNABORTED) return true;
+    shared->log("serve: accept failed");
+    return false;
+  }
+  SSL* ssl = SSL_new(tls_context);
+  if (ssl == nullptr || SSL_set_fd(ssl, fd) != 1) {
+    if (ssl != nullptr) SSL_free(ssl);
+    ::close(fd);
+    shared->log("serve: cannot create TLS connection");
+    return true;
+  }
+  std::thread([fd, ssl, shared]() {
+    if (SSL_accept(ssl) != 1) {
+      shared->log("serve: TLS handshake failed");
+      SSL_free(ssl);
+      ::close(fd);
+      return;
+    }
+    tls_connection = ssl;
+    struct TlsGuard {
+      SSL* ssl;
+      ~TlsGuard() {
+        tls_connection = nullptr;
+        SSL_free(ssl);
+      }
+    } guard{ssl};
+    handle_connection(fd, shared);
+  }).detach();
+  return true;
 }
 
 }  // namespace
@@ -796,9 +891,14 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   shared->log = log;
   refresh_metadata(shared.get());
 
+  // Install this before the first listener opens. A browser can connect as
+  // soon as accept() is possible, and a resume signal must not be missed while
+  // the rest of the server is still starting up.
+  install_resume_handler(log);
+
   int port = options.port;
   std::string bind_error;
-  const int listener = open_listener(options.port, &port, &bind_error);
+  int listener = open_listener(options.port, &port, &bind_error);
   if (listener < 0) {
     log("serve: " + bind_error);
     return 1;
@@ -829,6 +929,7 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   // is recorded as Pending, not fatal.
   shared->http_port = port;
   shared->https_port = https_port;
+  shared->listener_generation = 1;
   shared->started_at = static_cast<long long>(std::time(nullptr));
   shared->options.home_tile.deeplink_port = port;
   shared->home_tile = std::make_unique<HomeTile>(shared->options.home_tile,
@@ -851,29 +952,208 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   }
   std::fflush(stderr);
 
-  if (tls_listener >= 0) {
-    std::thread([tls_listener, tls_context, shared]() {
-      accept_connections(tls_listener, tls_context, shared.get());
-    }).detach();
-  }
-
-  if (options.discovery_port > 0) {
+  int discovery_fd = -1;
+  const bool discovery_enabled = options.discovery_port > 0;
+  if (discovery_enabled) {
     std::string discovery_error;
-    const int discovery_fd = open_discovery_socket(options.discovery_port,
-                                                   &discovery_error);
+    discovery_fd = open_discovery_socket(options.discovery_port, &discovery_error);
     if (discovery_fd < 0) {
       log("discovery: " + discovery_error + "; UDP discovery is unavailable");
     } else {
       log("discovery: UDP " + std::to_string(options.discovery_port) +
           " (query PS5H_DISCOVER_V1)");
-      std::thread([discovery_fd, shared]() {
-        serve_discovery(discovery_fd, shared.get());
-      }).detach();
     }
   }
-  accept_connections(listener, nullptr, shared.get());
-  ::close(listener);
-  return 0;
+
+  // A PS5 rest cycle can freeze this process and close its listening sockets
+  // underneath it. Firmware that reports resume sends SIGCONT; the wall clock
+  // can jump by five seconds or more, and the non-loopback IPv4 address set
+  // may disappear or change. Watch all three because no single signal is
+  // guaranteed on every firmware. Keep the old listeners in the poll set while
+  // waiting: if they are still usable they must keep serving, and a wake with
+  // no network must not turn the loop into a spin or a blocked sleep.
+  std::time_t last_wall_clock = std::time(nullptr);
+  std::string last_network = network_signature();
+  bool rebind_pending = false;
+  int rebind_backoff_seconds = 2;
+  std::chrono::steady_clock::time_point next_rebind_attempt =
+      std::chrono::steady_clock::now();
+
+  auto close_listener = [](int* fd) {
+    if (*fd < 0) return;
+    // shutdown() wakes a thread that might still be waiting on this socket;
+    // the listener loop itself is poll-driven, but accepted TLS handshakes can
+    // be blocked on their own fds when rest mode begins.
+    ::shutdown(*fd, SHUT_RDWR);
+    ::close(*fd);
+    *fd = -1;
+  };
+
+  auto begin_rebind = [&](const std::string& reason, bool immediate) {
+    const auto now = std::chrono::steady_clock::now();
+    if (!rebind_pending) {
+      shared->log("serve: " + reason +
+                  "; keeping listeners while the network recovers");
+      rebind_pending = true;
+    }
+    rebind_backoff_seconds = 2;
+    // A first wake gets a short settling period. A second SIGCONT or a network
+    // transition retries immediately so a previous failed attempt cannot pin
+    // the server to its backoff forever.
+    next_rebind_attempt = immediate ? now : now + std::chrono::seconds(2);
+  };
+
+  auto rebind_listeners = [&]() -> bool {
+    if (!network_ready()) return false;
+
+    // The old descriptors are closed only at the point of a real attempt. A
+    // still-valid listener serves requests during the network wait above.
+    close_listener(&listener);
+    close_listener(&tls_listener);
+    close_listener(&discovery_fd);
+
+    int new_port = port;
+    std::string error;
+    int new_listener = open_listener(port, &new_port, &error);
+    if (new_listener < 0) {
+      shared->log("serve: resume rebind failed: " + error);
+      return false;
+    }
+
+    int new_https_port = https_port;
+    int new_tls_listener = -1;
+    if (tls_context != nullptr) {
+      new_tls_listener = open_listener(https_port, &new_https_port, &error);
+      if (new_tls_listener < 0) {
+        shared->log("serve: HTTPS resume rebind failed: " + error);
+        close_listener(&new_listener);
+        return false;
+      }
+    }
+
+    listener = new_listener;
+    port = new_port;
+    tls_listener = new_tls_listener;
+    https_port = new_https_port;
+    shared->http_port = port;
+    shared->https_port = https_port;
+
+    if (discovery_enabled) {
+      std::string discovery_error;
+      discovery_fd = open_discovery_socket(options.discovery_port, &discovery_error);
+      if (discovery_fd < 0) {
+        shared->log("discovery: " + discovery_error +
+                    "; UDP discovery will retry after the next resume");
+      }
+    }
+
+    const unsigned long long generation =
+        shared->listener_generation.fetch_add(1) + 1;
+    shared->log("serve: listeners reopened after resume (generation " +
+                std::to_string(generation) + ")");
+    rebind_pending = false;
+    rebind_backoff_seconds = 2;
+    return true;
+  };
+
+  while (true) {
+    const auto loop_now = std::chrono::steady_clock::now();
+    const std::time_t wall_clock = std::time(nullptr);
+    const bool time_jumped = wall_clock - last_wall_clock >= 5;
+    last_wall_clock = wall_clock;
+    const std::string network = network_signature();
+    const bool network_changed = network != last_network;
+    last_network = network;
+    bool resume_signal = false;
+    if (g_resume_requested != 0) {
+      g_resume_requested = 0;
+      resume_signal = true;
+    }
+
+    if (resume_signal || time_jumped || network_changed) {
+      begin_rebind("suspend/resume detected",
+                   network_changed || rebind_pending);
+    }
+
+    if (rebind_pending && loop_now >= next_rebind_attempt) {
+      if (!network_ready()) {
+        // The network is still down. Keep the old listeners in the poll set
+        // and check again in one second; this is bounded and does not block.
+        next_rebind_attempt = loop_now + std::chrono::seconds(1);
+      } else if (!rebind_listeners()) {
+        const int retry_seconds = rebind_backoff_seconds;
+        shared->log("serve: rebind retry in " + std::to_string(retry_seconds) +
+                    "s");
+        next_rebind_attempt = loop_now + std::chrono::seconds(retry_seconds);
+        rebind_backoff_seconds = std::min(30, rebind_backoff_seconds * 2);
+      }
+    }
+
+    pollfd descriptors[3] = {};
+    int descriptor_count = 0;
+    int http_index = -1;
+    int tls_index = -1;
+    int discovery_index = -1;
+    auto watch = [&](int fd) {
+      if (fd < 0) return -1;
+      descriptors[descriptor_count].fd = fd;
+      descriptors[descriptor_count].events = POLLIN;
+      return descriptor_count++;
+    };
+    http_index = watch(listener);
+    tls_index = watch(tls_listener);
+    discovery_index = watch(discovery_fd);
+
+    int timeout_ms = 1000;
+    if (rebind_pending) {
+      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+          next_rebind_attempt - loop_now).count();
+      timeout_ms = static_cast<int>(
+          std::max<long long>(25, std::min<long long>(1000, remaining)));
+    }
+
+    const int ready = ::poll(descriptors, static_cast<nfds_t>(descriptor_count), timeout_ms);
+    if (ready < 0) {
+      if (errno == EINTR) continue;
+      shared->log("serve: poll failed; retrying");
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+    if (ready == 0) continue;
+
+    if (http_index >= 0 && descriptors[http_index].revents != 0) {
+      const short events = descriptors[http_index].revents;
+      if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        close_listener(&listener);
+        begin_rebind("HTTP listener lost", true);
+      } else if ((events & POLLIN) != 0 && !accept_http(listener, shared.get())) {
+        close_listener(&listener);
+        begin_rebind("HTTP listener lost", true);
+      }
+    }
+    if (tls_index >= 0 && descriptors[tls_index].revents != 0) {
+      const short events = descriptors[tls_index].revents;
+      if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        close_listener(&tls_listener);
+        begin_rebind("HTTPS listener lost", true);
+      } else if ((events & POLLIN) != 0 &&
+                 !accept_tls(tls_listener, tls_context, shared.get())) {
+        close_listener(&tls_listener);
+        begin_rebind("HTTPS listener lost", true);
+      }
+    }
+    if (discovery_index >= 0 && descriptors[discovery_index].revents != 0) {
+      const short events = descriptors[discovery_index].revents;
+      if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        close_listener(&discovery_fd);
+        begin_rebind("discovery listener lost", true);
+      } else if ((events & POLLIN) != 0 &&
+                 !serve_discovery_once(discovery_fd, shared.get())) {
+        close_listener(&discovery_fd);
+        begin_rebind("discovery listener lost", true);
+      }
+    }
+  }
 }
 
 }  // namespace ps5h

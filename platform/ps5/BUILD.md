@@ -248,11 +248,19 @@ started by the title path or by rest mode. `src/http.cpp` remains an outbound
 libcurl client. Ports 9021 and 8888 are the external elfldr and file-manager
 processes recorded in `docs/CONSOLE-REPORT.md:13`.
 
-Rest mode stops that userland, so the harness, elfldr and the file manager are
-not there to serve. The only path to work happening while the console sleeps is
-to queue it on an always-on host and run it after the console wakes and
-`harness.elf` is launched again. There is no wake-on-LAN, scheduler or
-background-service path in this build.
+On current PS5 homebrew reports, rest mode freezes the userland process but
+closes its listening sockets and drops the network. `src/server.cpp` now keeps
+one `poll()` loop for HTTP, HTTPS and UDP discovery. It detects `SIGCONT`, a
+wall-clock jump of at least five seconds, or a change in the non-loopback IPv4
+address set, keeps the existing descriptors available while the network is
+down, then closes them and rebinds the same ports when the network is ready.
+Network checks are bounded at one second, and failed binds back off at 2s, 4s,
+8s, 16s and a 30s cap; a second wake resets the wait. This is entirely
+in-process; no separate payload is needed for the suspend case. If the process
+is terminated or the jailbreak is lost, the payload must be launched again.
+The harness does not install a wake source, scheduler or background service,
+and it cannot repair `elfldr` or the file manager. No work executes while the
+console is asleep.
 
 ### Local agents
 
