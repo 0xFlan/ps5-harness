@@ -261,6 +261,8 @@ int main() {
   assert(page_body.find("id=\"reconnect\"") != std::string::npos);
   assert(page_body.find("Console connection lost") != std::string::npos);
   assert(page_body.find("id=\"reconnect-url\"") != std::string::npos);
+  assert(page_body.find("If the console went to rest mode") != std::string::npos);
+  assert(page_body.find("If the console was restarted") == std::string::npos);
 
   const std::string icon = request(port, "GET", "/tile-icon.png", "");
   assert(icon.find("200 OK") != std::string::npos);
