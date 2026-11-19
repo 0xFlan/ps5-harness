@@ -14,7 +14,7 @@ measurement remain open.
 | P3 Capabilities | Done for the payload path — TLS (200, bad cert rejected), `dlopen` and writes to `/data`, `/data/homebrew` and `/user` observed 2026-11-18; USB was absent. |
 | P4 Tool surface | Mostly done — resume returned 206 with a matching digest and the free-space cap fired on a 2 MiB mount; 1 GB and peak RSS tracked below. |
 | P5 Extension ecosystem | Partial — ABI v2 frozen, manifest compiler and example plugin exist; registry not built. |
-| P6 UX | Partial — opt-in LAN browser workspace with persistent sessions, live activity/tool panels and compaction is shipped and host-tested; not yet exercised from the PS5 runtime. Native on-console UI remains open. |
+| P6 UX | Partial — opt-in LAN browser workspace with persistent sessions, live activity/tool panels, compaction and a headless-browser reconnect test is shipped and host-tested; not yet exercised from the PS5 runtime. Native on-console UI remains open. |
 | P7 Audit + release | Partial — threat model, fuzz, ASan and the provider round trip done; hardware audit and release engineering pending. |
 
 | Document | Purpose |
@@ -22,6 +22,7 @@ measurement remain open.
 | `docs/AUDIT.md` | Confirmed defects in the current code, with fix specs |
 | `docs/SECURITY.md` | Threat model, invariants, secret handling |
 | `docs/HARDWARE-CHECKLIST.md` | Console smoke sheet, filled in per attempt |
+| `docs/RECOVERY.md` | Connection loss, rest mode, re-jailbreak and address/port recovery |
 | `MISSION.md` | Operating rules to keep this plan on the rails |
 
 ## What exists today
@@ -271,6 +272,17 @@ host-tested and cross-built for the payload; it has not been exercised from a
 PS5 browser or used to complete a model turn on hardware. The native on-console
 UI in the ProsperoStore mold remains a separate project and still needs input,
 focus, text entry and streaming rendering.
+
+The recovery surface now covers connection loss, restarts and address/port
+changes: the browser retries with a timeout and exposes a new-address field; a
+running primary listener publishes `/.well-known/ps5h` and answers UDP
+discovery on 8799; `tools/ps5h-discover.py` finds the new origin; and
+`--serve-token` plus `--session` make a relaunch reuse the token and transcript.
+The host tests cover the discovery document and UDP responder; a loopback smoke
+run exercised the helper over UDP and TCP. It has not been exercised on the
+console yet, and it does not change the fact that a rest-mode/restart kills the
+userland payload. The support procedure is
+[`RECOVERY.md`](RECOVERY.md).
 
 Completion: a ten-minute session with no terminal open — browse a catalogue,
 download something, see progress, cancel one, find the file afterwards — on the

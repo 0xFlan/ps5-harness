@@ -4,6 +4,15 @@ First execution of the agent on real hardware. This is the evidence behind the
 status claims in `README.md` and `platform/ps5/BUILD.md`; anything not listed
 here is still unverified.
 
+> **Historical evidence notice.** Except for the current `0.1.0-tile` subsection
+> below, this report records earlier builds and captures from 2026-11-18. The
+> initial run window was approximately 09:18–12:05 local; the legacy 16:18
+> capture and the current 17:00–17:14 capture are identified in their sections.
+> Early launch PIDs were not recorded unless stated. The current live process is
+> PID 103 on 8791/8790 and PID 107 on 8789; the PID list was rechecked at 17:06
+> PST and the service/probe/tile at 17:14 PST. Any value
+> without that current label is historical, not a claim about today's process.
+
 ## Environment
 
 | Item | Value |
@@ -11,20 +20,20 @@ here is still unverified.
 | Console | PS5 at `192.168.4.100` (LAN) |
 | Firmware | **not recorded** — no shell was available to query it |
 | Exploit / loader | `elfldr` listening on 9021; web file manager on 8888. Exact versions not reported by either UI. |
-| Date | 2026-11-18, ≈09:18–12:05 local |
+| Date | 2026-11-18, ≈09:18–12:05 local (historical initial run; later captures are timestamped separately) |
 | Host | macOS 26.6.2 (arm64), LLVM 23.1.4 |
 | SDK | ps5-payload-sdk v0.45 (zip sha256 `5fac6409…`) |
 | Libraries | PacBrew v0.41.1 (bundle sha256 `e811bc2e…`), libcurl 8.18.0, OpenSSL 3.5.2 |
-| Agent build | `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile); `0.1.0-final` (LAN workspace baseline); `0.1.0-input` (browser input layer); **`0.1.0-https`** (current HTTPS browser workspace) |
+| Agent build | **Current: `0.1.0-tile`** (installed home-screen tile, browser workspace). Historical builds: `0.1.0-fd5d0ae` (P2/P3 and 1 GiB); `0.1.0-4d7499f` (local agents); `0.1.0-c0f76b5` (delegation); `0.1.0-653d046` (skills, `fs_edit`); `0.1.0-e0b6af4` (recon, plan, swarm, missions); `0.1.0-e6b6205` (memory-safety rebuild); `0.1.0-01c6cbc` (home-screen tile package art); `0.1.0-final` (LAN workspace baseline); `0.1.0-input` (browser input layer); `0.1.0-https` (HTTPS browser workspace); `0.1.0-chat` (PS5 chat presentation) |
 
-Current artifacts on disk (`0.1.0-https`):
+Local build outputs (current payload; historical package staging):
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `harness.elf` (HTTPS process) | 9,761,576 | `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
-| `eboot.bin` (not installed) | 7,773,504 | `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
-| `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
-| `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
+| `harness.elf` (current live process, 17:14 PST recheck) | 9,898,288 | `f47fe099b7cb919561d2990dc67ff9c61f350a69a2397c4273c2ce8c6731e9e6` |
+| `eboot.bin` (local PHAR00001 package staging; not the installed tile shell) | 7,906,384 | `730cf9aae8511c71b5631a804f56c1d996559b0a0819184f4edc70f671ece765` |
+| `sce_sys/param.sfo` (local package staging) | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
+| `sce_sys/icon0.png` (local package staging) | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
 The P2/P3 and 1 GiB evidence below was collected on `0.1.0-fd5d0ae`; the
 local-agent checks use `0.1.0-4d7499f`; the delegation checks use
@@ -32,9 +41,21 @@ local-agent checks use `0.1.0-4d7499f`; the delegation checks use
 plan, swarm and mission checks use `0.1.0-e0b6af4`; the parser-hardening smoke
 uses `0.1.0-e6b6205`; the home-screen tile is from `0.1.0-01c6cbc`;
 the browser input layer is from `0.1.0-input` (source commit `8baf87a`);
-the HTTPS workspace is from `0.1.0-https` (source commit `d45b323`).
+the HTTPS workspace is from `0.1.0-https` (source commit `d45b323`); the PS5
+chat presentation is `0.1.0-chat`; the installed home-screen tile is
+`0.1.0-tile`, built from the current worktree with an explicit build id. The
+final artifact was rebuilt from a clean tree (`make clean`,
+`make -C platform/ps5 clean`, then the cross-build with
+`BUILD_ID=0.1.0-tile`); the deployed ELF is byte-identical to that build. The
+local clean artifact is dated 2026-11-18 15:51:38; no file under `src/`,
+`include/`, `tests/`, `platform/` or `Makefile` is newer, and this capture did
+not rebuild or redeploy it.
 
-## How it was launched
+## How it was launched — historical initial 0.1.0-fd5d0ae run
+
+> Historical: this command and config describe the initial run, not the current
+> `0.1.0-tile` process. The current launch is recorded in the `0.1.0-tile`
+> section below.
 
 The package's `harness.elf` was uploaded to `/data/harness.elf` through the web
 file manager and started by `elfldr` with a `file:` URI. Arguments follow
@@ -51,7 +72,7 @@ printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--call
 capability checks use the shipped `--call` path, the same HTTP, filesystem,
 download and plugin code the agent loop invokes.
 
-## Two defects the console exposed
+## Two defects the console exposed (historical: 0.1.0-fd5d0ae run, 2026-11-18 morning)
 
 1. **`harness.elf` was ET_EXEC.** `make_fself.py` needs a fixed-address ELF, but
    elfldr only maps ET_DYN; the first launch failed with
@@ -64,7 +85,7 @@ download and plugin code the agent loop invokes.
    fix the same 10 MiB resume returned `status: 206`, the correct digest, and
    renamed the file; the 1 GiB transfer below then finalized on the same build.
 
-## P2 — boot and resources
+## P2 — boot and resources (historical: 0.1.0-fd5d0ae, 2026-11-18 morning)
 
 `harness.elf` starts, appends to `/data/ps5-harness-agent.log`, and exits
 cleanly (`--call` returns 0; no `CRASH` line). Observed lines:
@@ -91,7 +112,7 @@ budget's 136 MiB buffered share is therefore below the 256 MiB that a cumulative
 Not met: the title-install path. `eboot.bin` was not installed or launched from
 the shell, so the SFO/icon rows and the fake-SELF acceptance remain untested.
 
-## P3 — capabilities
+## P3 — capabilities (historical: 0.1.0-fd5d0ae, 2026-11-18 morning)
 
 ### TLS — verified
 
@@ -122,7 +143,7 @@ returned `{"echo":{"value":"console"}}`.
 | `/mnt/usb0` | no USB inserted; the 2 MiB tmpfs mount existed but opening a file there failed |
 | app's own folder | not tested (no title sandbox) |
 
-## P4 — transfers
+## P4 — transfers (historical: 0.1.0-fd5d0ae, 2026-11-18 morning)
 
 - **Small file** — `https://example.com/` → 577 bytes, `ok: true`, sha256
   `25ddf2c883e0d1958ea971d279a7e4f0fd446724ee3db7db19dadabd4a62e484` matched,
@@ -173,7 +194,7 @@ returned `{"echo":{"value":"console"}}`.
   callback to a `FILE*` and the digest uses an 8 KiB buffer; no buffer grows
   with file size.
 
-## Local agents — build 0.1.0-4d7499f
+## Local agents — historical build 0.1.0-4d7499f
 
 The new `/data/harness.elf` was uploaded and two profiles were staged in
 `/data/homebrew`, the console default, so no `--agents` flag was needed:
@@ -202,7 +223,7 @@ A `--call fs_list` run confirmed the on-console log records
 the host e2e test asserts that a loaded profile's prompt, model, temperature
 and token cap reach the provider request.
 
-## Delegation — build 0.1.0-c0f76b5
+## Delegation — historical build 0.1.0-c0f76b5
 
 The delegation build was cross-compiled from commit `c0f76b5` and uploaded to
 `/data/harness.elf`. The on-console log records:
@@ -264,7 +285,7 @@ provider, including the parent `delegate` tool call, the child profile request,
 a child `fs_read` refused by the inherited parent root, the child answer
 returned to the parent, max-depth refusal, and exact step/token refunds.
 
-## Skills and targeted edits — build 0.1.0-653d046
+## Skills and targeted edits — historical build 0.1.0-653d046
 
 This build was cross-compiled from commit `653d046`, uploaded to
 `/data/harness.elf`, and its two example packs were staged under
@@ -337,17 +358,18 @@ No provider key was staged, so the model did not choose a skill or an edit on
 hardware. The host e2e suite drives both tools through the real CLI and asserts
 that a delegated child's tool schema still contains `skill` and `fs_edit`.
 
-## Home-screen tile — `0.1.0-01c6cbc`
+## Home-screen tile — historical precursor `0.1.0-01c6cbc`
 
 The generated `icon0.png` was replaced with a 512x512 PS5-style tile: near-black
 cool gradient, soft vignette, a white H monogram with a glass highlight and one
 blue bridge. It is rendered at 2x and box filtered, so it stays legible at the
 128px size used in a home row; the title is shell-rendered rather than baked in.
-This is a package-art change only, validated by `ps5_package_test`. The actual
-home-screen rendering has not been observed because the title-install path
-remains unverified.
+This was the package-art precursor (2026-11-18; exact clock time not recorded).
+The install path is now implemented and verified on the console by the later
+`0.1.0-tile` section above; the actual
+home-screen row rendering is still unobserved from the remote session.
 
-## Memory-safety rebuild — `0.1.0-e6b6205`
+## Memory-safety rebuild — historical `0.1.0-e6b6205`
 
 The parser hardening was rebuilt into a fresh payload and re-smoked on the
 console without a provider key. `--tools` listed the same 14 tools. A 64-byte
@@ -357,7 +379,7 @@ PE file with `e_lfanew = 0xffffffff` returned `format: pe` and
 rejected with `max_steps must be between 0 and 64` before any child started.
 The full fuzz and sanitizer results are in the host logs, not on the console.
 
-## Local recon, plan, swarm and mission
+## Local recon, plan, swarm and mission (historical: 0.1.0-e0b6af4)
 
 On `0.1.0-e0b6af4`, `--tools` listed 14 tools (the seven original built-ins,
 four recon tools, `delegate`, `swarm`, and the loaded `hello_echo` plugin).
@@ -413,7 +435,7 @@ No provider key was staged, so no model-driven plan, swarm or mission turn was
 run on the console. The host e2e suite covers those loops with the real CLI,
 provider history, tool dispatch and budget accounting.
 
-## P5 — extension contract
+## P5 — extension contract (historical: 0.1.0-fd5d0ae-era, 2026-11-18)
 
 The `hello` plugin was built outside the package with only
 `include/ps5h/plugin_api.h` and the SDK, then loaded by the console binary. The
@@ -431,13 +453,13 @@ report:
 
 | Claim | Reference |
 |---|---|
-| The artifact is built for elfldr with a `file:` URI | `platform/ps5/Makefile:89`; `platform/ps5/BUILD.md:197` |
-| The console run used that path | `docs/CONSOLE-REPORT.md:36` (uploaded through the web file manager, started by `elfldr`) |
-| The harness process ends after one command or one agent run | `src/main.cpp:561` (entry); returns at `:1013` (`--call`), `:1034` (`--tools`),   `:1039` (no prompt) and `:1050` (agent run), plus the mission return at `:1010` |
+| The artifact is built for elfldr with a `file:` URI | `platform/ps5/Makefile:89`; `platform/ps5/BUILD.md:218` |
+| The console run used that path | `docs/CONSOLE-REPORT.md`, “How it was launched — historical initial 0.1.0-fd5d0ae run” (uploaded through the web file manager, started by `elfldr`) |
+| The harness process ends after one command or one agent run | `src/main.cpp:614` (entry); returns at `:1191` (mission), `:1196-1214` (`--call`), `:1217-1219` (`--tools`), `:1283-1286` (no prompt), `:1293-1295` (agent run); `--serve` blocks at `:1279` |
 | The harness opens no listener by default | `src/server.cpp` binds only in the explicit `--serve` path; `src/http.cpp` remains the outbound libcurl client |
 | `--serve` requires a bearer token and is opt-in | `src/server.cpp` rejects every unauthenticated `/api/*` request; `docs/SECURITY.md` invariant 15 |
 | It is not a rest-mode service | the listener starts only after a human launches the payload with `--serve`; nothing registers it with the OS |
-| 9021 and 8888 belong to other processes | `docs/CONSOLE-REPORT.md:13` (elfldr and the web file manager) |
+| 9021 and 8888 belong to other processes | `docs/CONSOLE-REPORT.md`, Environment table (elfldr and the web file manager) |
 
 Suspending the console stops that userland, so the harness process, elfldr and
 the file manager are not running to receive anything. Nothing in the repository
@@ -451,6 +473,10 @@ it requires a human at the machine — so the limitation is established from the
 launch path and process lifetime above, not from a sleep test.
 
 ## 0.1.0-final LAN workspace (baseline)
+
+> Historical release record (2026-11-18; exact clock time not recorded). The
+> current artifact and live capture are in the `0.1.0-tile` section above; the
+> hashes and sizes below are not current.
 
 This was the final end-to-end run before the browser input layer. It was the
 only listener left on the console at that release. The model was **stubbed**;
@@ -469,13 +495,13 @@ artifact staged to `/data/harness.elf` for that release was:
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `harness.elf` (was running) | 9,727,192 | `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
-| `eboot.bin` (not installed) | 7,733,984 | `f65de21248d82a60bfc3ba5d0f606c0de522101683697e461757656b36b2c2f4` |
+| `harness.elf` (historical baseline; not current) | 9,727,192 | `5e60306dcdaf6ac4cb336e1877880c57fba45a23428b20ef2c71270145a12ef8` |
+| `eboot.bin` (historical baseline; not installed) | 7,733,984 | `f65de21248d82a60bfc3ba5d0f606c0de522101683697e461757656b36b2c2f4` |
 
 `make -B` was rerun to check byte reproducibility; the PS5 linker embeds a
 per-link build-id, so the hash changes between identical links. The table above
-is the exact binary that was staged and is running, not a claim of reproducible
-bytes. `ps5_package_test` passed on the package.
+is the historical binary staged for that release, not the current runtime and
+not a claim of reproducible bytes. `ps5_package_test` passed on the package.
 
 ### Endpoint and access control
 
@@ -549,7 +575,9 @@ The old port-8789 listener and each test listener were identified separately
 and terminated with `SIGTERM`; the loader and the file manager were left alive.
 The final payload was then relaunched on **port 8789**, and ports 8792–8795 are
 closed. At that release, the only harness listener was the documented
-`0.1.0-final` instance on 8789; `0.1.0-input` now replaces it. The test token is not recorded here.
+`0.1.0-final` instance on 8789; this is historical and is not the current 8789
+process, which is the `0.1.0-tile` PID 107 described above. The test token is
+not recorded here.
 
 ### Checks run
 
@@ -558,7 +586,174 @@ closed. At that release, the only harness listener was the documented
 - `PATH=/opt/homebrew/opt/llvm/bin:$PATH make -B -C platform/ps5
   BUILD_ID=0.1.0-final` — exit **0**; `ps5_package_test` passed.
 
+## Home-screen tile — `0.1.0-tile`
+
+The harness now writes its own home-screen source at startup instead of relying
+on a pre-staged package folder. The tile is a web-app shell entry, not a copy of
+the payload ELF:
+
+```/data/homebrew/HARN00001/           0777
+  eboot.bin                        0777  copied from staged /data/ps5h-web-shell.bin (original /system_ex/app/NPXS40106/eboot.bin)
+  sce_sys/param.json               0777  HARN00001, IV9999-HARN00001_00-HARNESSHOMETILE1
+  sce_sys/icon0.png                0777  512x512 RGBA, generated in code, 1,049,236 bytes
+```
+
+The harness payload runs as uid 1 and cannot see the `/system_ex` mount even
+though the console's WFM process can. The exact source shell was therefore
+downloaded through WFM and staged at `/data/ps5h-web-shell.bin`; the app uses
+that staged file as `--web-shell`. Staging is required so a remove/re-add cycle
+can work after the tile folder itself is deleted. The staged copy and the tile's
+`eboot.bin` both match the source byte-for-byte.
+
+The copied `eboot.bin` matched the console shell exactly (5,211,435 bytes,
+sha256 `684d59bbd791dee90e891fe9d89e440ead58bf146ae53a3cedfa5a04970a9fbe`). The
+generated tile icon hash is
+`0cbbb5131134a10542241a3f1b260f09b5b4df0e37c378983d1c8dc878335f2e`; it is a
+512x512, 8-bit RGBA PNG of 1,049,236 bytes. The current tile `param.json` is
+333 bytes, sha256
+`4b64bbaabf5ecdaa13c1521705a60f0aa6e74aa064d4b13e3a53099f3cf826d1`,
+with `deeplinkUri` `http://127.0.0.1:8791/`.
+The staged shell and the tile `eboot.bin` are both 5,211,435 bytes with that
+same `684d…` hash.
+
+At the live capture on 2026-11-18 17:00–17:14 PST, after a full power cycle, the
+primary process was **PID 103** on HTTP 8791 / HTTPS 8790; a second
+same-artifact instance on HTTP 8789 was **PID 107**. The signal helper was
+launched through elfldr and returned `kill pid=103 sig=17 rc=0` and
+`kill pid=103 sig=19 rc=0`. The measured transition was:
+
+| Stage | HTTP 8791 | HTTPS 8790 | HTTP 8789 (PID 107) |
+|---|---:|---:|---:|
+| Before stop | **200** | **200** | **200** |
+| After `SIGSTOP` 103 | **000** | **000** | **200** |
+| After `SIGCONT` 103 | **200** | **200** | **200** |
+
+A separate stop test on PID 107 made HTTP 8789 return **000** while HTTP 8791
+stayed **200**; after `SIGCONT`, 8789 returned **200**. This identifies both
+listeners by the PID that owns them. No second stop test was run. At 17:06 PST
+the same boot was rechecked with `ps5h-live` over elfldr: it listed PID 103 and
+PID 107, and 8791, 8790 and 8789 all returned **200**. A final non-destructive
+service check at 17:14 PST again returned **200** on all three; no SIGSTOP was
+repeated.
+
+The current launch used `/data/harness.elf` through elfldr with
+`--config /data/ps5h-mission.json`, `--serve 8791`, `--serve-tls 8790`, the
+TLS certificate/key, `--web-shell /data/ps5h-web-shell.bin`,
+`--homebrew-root /data/homebrew` and `--home-tile-autostart`. The 8789
+companion used the same artifact and config with `--serve 8789`. The tile was
+re-registered from PID 103 after the tests (`POST /api/home-tile`); the probe
+then still returned `installed:true` / `status:0`, and the rewritten
+`param.json` pointed at 8791.
+
+The launch path is `/data/harness.elf`; the file downloaded from the console is
+**9,898,288 bytes**, sha256
+`f47fe099b7cb919561d2990dc67ff9c61f350a69a2397c4273c2ce8c6731e9e6`. The console
+does not expose `/proc`, so provenance is the recorded launch path, the
+PID/port ownership test and the matching executable file hash rather than a
+separate `/proc/<pid>/exe` read or a proc-stat observation.
+
+An earlier capture at 2026-11-18 16:18 PST recorded PID 467 on 8791/8790 and a
+legacy input instance PID 302 on 8789. That SIGSTOP/SIGCONT test was performed
+on PID 467, not on the current process; it is historical. The 16:26 PST outage was cleared
+by the 16:59 power cycle, and the current process was relaunched at 17:00. The
+current state does not require a manual wake.
+
+Registration was checked only through the required endpoint:
+
+```text
+POST http://127.0.0.1:10101/api/v1/games/info {"title_id":"HARN00001"}
+HTTP 200
+{"path":"/data/homebrew/HARN00001","title_id":"HARN00001",
+ "installed":true,"source_available":true,"platform":"ps4","status":0}
+```
+
+At the 17:14 PST recheck the current probe returned `installed:true`,
+`source_available:true`, `platform:ps4`, `status:0`, and content ID
+`IV9999-HARN00001_00-HARNESSHOMETILE1`; the deeplink in `/api/health` is
+`http://127.0.0.1:8791/`. The `/api/health` response from PID 103 was:
+
+```json
+{"ok":true,"build":"0.1.0-tile","home_tile":{"checked_at":1795050254,"deeplink":"http://127.0.0.1:8791/","detail":"Registered with ShadowMountPlus.","folder_present":true,"installed":true,"library_excluded":true,"path":"/data/homebrew/HARN00001","reason":"","registered":true,"removed":false,"scan_path_ok":true,"scan_paths":[],"service_reachable":true,"shell_available":true,"state":"installed","title_id":"HARN00001","title_name":"PS5 Harness","web_shell":"/data/ps5h-web-shell.bin"}}
+```
+
+`checked_at` is 17:04 PST (when the tile was re-registered); the 17:14 recheck
+reads that same installed object.
+
+`/api/state` from the same PID 103 at that capture reported build `0.1.0-tile`,
+20 tools, and the same installed/registered tile fields. A full remove/readd cycle was exercised on the console:
+removal deleted the folder, left `.ps5h-home-tile-removed`, made the info route
+return 404, and rescanned. The chat process was then restarted while the marker
+was present; the folder stayed absent and the info route stayed 404, proving the
+marker blocks startup restoration. `Add to home screen` cleared the marker,
+rewrote the folder, and registration returned HTTP 200 / `status:0` after the
+next scan. The startup log also recorded
+`home tile: Registered with ShadowMountPlus.`
+
+Not verified: the PS5 home row itself was not observed from this remote session,
+and the tile was not tapped. Whether the shell opens the deeplink full screen is
+therefore still a console-side visual check; the source, permissions and
+ShadowMountPlus registration were confirmed at that capture. The exact web-shell path can differ
+on another firmware, and the uid-1 payload sandbox may hide `/system_ex` there
+too; this deployment uses the exact staged copy described above.
+
+## PS5 chat presentation — `0.1.0-chat`
+
+> Historical release record (2026-11-18; exact clock time not recorded). The page
+> sizes and access measurements below are for `0.1.0-chat`, not the current
+> `0.1.0-tile` build.
+
+This section records the `0.1.0-chat` workspace. The current `0.1.0-tile` build
+keeps that presentation and adds the Home screen panel; the tile evidence above
+is the current live deployment.
+
+The browser workspace now uses the PS5 system language rather than a generic
+chat-app layout: a dark control-center rail, PlayStation-blue identity tile,
+system-ready status, dashboard action cards, and a PS5 Messages-style
+transcript. Outgoing messages are right-aligned blue bubbles; console replies
+are left-aligned dark bubbles with a circular PS avatar. The footer is a single
+rounded message bar with keyboard, microphone, help and circular send controls.
+
+### Deployed listeners
+
+| Check | Measured |
+|---|---|
+| `GET /` over HTTPS 8790 | **200**, 76,320 bytes |
+| `GET /` over HTTP 8791 | **200**, 76,320 bytes |
+| Legacy `GET /` over HTTP 8789 | **200**, 53,581 bytes (retained input build) |
+| Unauthenticated `/api/state` | **401** `{"error":"unauthorized","ok":false}` |
+| Authenticated build | `0.1.0-chat` |
+| Registered tools | **20** |
+| Saved history | **10 messages**; context **7,611 / 4,096** chars, **3 compactions** |
+
+The old HTTPS process was identified by its individual PID and stopped with
+`SIGTERM`; the legacy 8789 process was left running. The exact uploaded ELF was
+started through elfldr on 8791 with TLS also on 8790, using the existing mission
+config, session, certificate and key.
+
+### Browser checks
+
+- Headless Chromium against the deployed HTTPS origin: secure context **true**,
+  no page errors, 10 saved messages, outgoing bubble right of the incoming
+  bubble, 40 px circular send control, no horizontal document overflow.
+- Desktop 1440×900 and phone 390×844: composer and mobile navigation do not
+  overlap; the on-screen keyboard closes above the mobile navigation; the help
+  sheet's top Close control is visible and closes it.
+- Layout audit at 1440×900, 1280×800, 1180×800, 1024×768, 900×700, 768×1024,
+  390×844, 360×640 and 320×568: no horizontal overflow, no blocked controls, and
+  Activity/Tools, OSK, help, typing and chip insertion all worked.
+- `make test` — exit **0** after the final UI changes.
+- Cross-build `make -C platform/ps5 BUILD_ID=0.1.0-chat` — exit **0**.
+- Certificate verification still reports `CSSMERR_TP_NOT_TRUSTED`; browser tests
+  use the certificate-bypass profile. Warning-free access requires the user to
+  set **Always Trust** on the imported `PS5 Harness` certificate in Keychain
+  Access, or run the documented `security add-trusted-cert` command. This was
+  not automated because macOS asks for interactive authorization.
+
 ## Input layer — `0.1.0-input`
+
+> Historical release record (2026-11-18; exact clock time not recorded). The
+> artifact hashes and measurements below are for `0.1.0-input`; they are not the
+> current running artifact.
 
 This build adds the browser input layer to the same authenticated workspace. It
 changes no tool, auth or policy path: all 20 tools and the bearer gate remain in
@@ -575,8 +770,8 @@ PATH=/opt/homebrew/opt/llvm/bin:$PATH \
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `harness.elf` (running) | 9,759,960 | `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c` |
-| `eboot.bin` (not installed) | 7,766,816 | `d8b1a976913bf581210d66fc01b775c78e9630b49bcd00c473df8aa9b26e55bc` |
+| `harness.elf` (historical input build; not current) | 9,759,960 | `7509335ae3300a53f52493ced21d0eab75bb51dd6b66511de1ab45fcecb1c43c` |
+| `eboot.bin` (historical input build; not installed) | 7,766,816 | `d8b1a976913bf581210d66fc01b775c78e9630b49bcd00c473df8aa9b26e55bc` |
 
 `make -B` was rerun and the PS5 linker again embedded a per-link build-id, so the
 table identifies the exact staged binary, not a reproducible link.
@@ -635,6 +830,10 @@ harness listener; test listeners 8792–8795 remain stopped.
 
 ## HTTPS workspace — `0.1.0-https`
 
+> Historical release record (2026-11-18; exact clock time not recorded). The
+> artifact hashes, page sizes and access results below are for `0.1.0-https`; the
+> current live capture is above.
+
 This build adds an optional TLS listener to the same browser workspace. It does
 not change the page, auth gate, tools or session format; it makes the existing
 page a secure context so Web Speech and the microphone permission prompt work.
@@ -655,13 +854,13 @@ change payload bytes.
 |---|---|
 | HTTPS URL | `https://192.168.4.100:8790/` |
 | New HTTP URL | `http://192.168.4.100:8791/` |
-| Retained HTTP URL | `http://192.168.4.100:8789/` (existing `0.1.0-input` process) |
+| Retained HTTP URL at that release | `http://192.168.4.100:8789/` (historical `0.1.0-input` process; not current) |
 | Certificate | `/data/ps5h-cert.pem` |
 | Private key | `/data/ps5h-key.pem` |
 | Certificate | self-signed local root, `CN=PS5 Harness`; SAN `192.168.4.100`, `127.0.0.1`, `localhost` |
 | Certificate SHA-256 | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
-| `harness.elf` | 9,761,576 bytes, sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
-| `eboot.bin` (not installed) | 7,773,504 bytes, sha256 `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
+| `harness.elf` (historical 0.1.0-https; not current) | 9,761,576 bytes, sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b` |
+| `eboot.bin` (historical 0.1.0-https; not installed) | 7,773,504 bytes, sha256 `3109fa9bed23e80bc08652f588f4b65eefc5078d78e34c576faecd39f95a9a82` |
 
 With a client copy of the certificate at `/tmp/ps5h-cert.pem`, `curl --cacert
 /tmp/ps5h-cert.pem https://192.168.4.100:8790/` returned **200** and the page was
@@ -692,10 +891,8 @@ The TLS chain itself was validated by `curl --cacert`.
 
 The new process loaded the same `/data/ps5h-mission-session-final.json` and
 reported context **7,611 / 4,096** characters, **3 compactions**, and **10
-non-system messages** (12 total including the system prompt and summary). The
-legacy 8789 process remains up because its PID could not be identified safely
-without risking the loader or file manager; the new payload is reachable on both
-8790 and 8791, so the existing HTTP path did not break.
+non-system messages** (12 total including the system prompt and summary). At the historical `0.1.0-https` release (2026-11-18; exact clock time not recorded) the legacy 8789 process was left running; its then-live check identified it as PID 302 and it still returned HTTP 200, while the chat payload
+was reachable on both 8790 and 8791 at that capture.
 
 ### Browser checks on the deployed origin
 
@@ -727,7 +924,11 @@ recognition result; it proved the page’s result-to-caret insertion path.
 
 ## Still unverified
 
-- Title install and launch of `eboot.bin` (fake SELF, SFO keys, shell entry).
+- Tapping or launching the installed HARN00001 home-row tile. The tile folder is
+  installed and registered, but home-row placement and the tap/launch were not
+  observed from this remote session.
+- Title install and launch of the packaged PHAR00001 `eboot.bin` (fake SELF, SFO
+  keys, shell entry).
 - Console firmware and exploit versions; the loader and web file manager
   versions.
 - USB writes and an app-sandbox write.

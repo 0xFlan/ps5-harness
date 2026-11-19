@@ -48,7 +48,7 @@ The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
 
 ```bash
 make                # build/harness
-make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, session, tools, server, package and e2e
+make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, session, tools, server, browser reconnect, package and e2e
 make fuzz-run       # ASan/UBSan: JSON, manifest, recon and mission fuzzers, 20k iterations each
 make sanitize-test  # recon and mission host tests under ASan/UBSan
 make leaks-check    # macOS system leak check on the plain recon/mission fuzz drivers
@@ -108,6 +108,7 @@ model; `docs/AUDIT.md` records the defects that produced each rule.
 | Plugin results go into a **host-owned** buffer — nothing is freed across the ABI | `include/ps5h/plugin_api.h` |
 | The model endpoint is policy-checked too — the API key never travels over cleartext or to a private address | `src/agent.cpp` |
 | Browser listener is off unless `--serve` is explicit; every `/api/*` call requires the bearer token; one turn runs at a time; no cookies, CORS or wildcard origins | `src/server.cpp` |
+| Public discovery exposes only service/build/title/ports/addresses; the token, session and tool data stay authenticated. UDP discovery can be disabled with `--discovery-port 0` | `src/server.cpp`, `tools/ps5h-discover.py` |
 | Session files stay under the write roots and are rejected if their names look secret-bearing | `src/main.cpp`, `src/paths.cpp` |
 
 `fs_write`, `fs_edit` and `download` refuse any path outside `allowed_roots`.
@@ -373,8 +374,8 @@ terminal. Input is handled by the browser that opens the page:
 The page reads the device running the browser. A keyboard, mouse, controller or
 headset paired only to the console is not forwarded to a remote browser by this
 payload. Web Speech and microphone permissions require HTTPS or localhost. The
-console now serves HTTPS directly on port 8790; the legacy HTTP listener on 8789
-and the new HTTP listener on 8791 explain the requirement when the mic button is
+console now serves HTTPS directly on port 8790; the HTTP companion on 8789 and
+the new HTTP listener on 8791 explain the requirement when the mic button is
 pressed. See [HTTPS and microphone trust](#https-and-microphone-trust) for the
 certificate and trust steps.
 
@@ -397,12 +398,19 @@ deployment uses:
 | Item | Value |
 |---|---|
 | HTTPS | `https://192.168.4.100:8790/` |
-| Retained HTTP | `http://192.168.4.100:8789/` (existing input build) |
-| New HTTP | `http://192.168.4.100:8791/` (the HTTPS process) |
+| Browser workspace | `0.1.0-tile` (home-screen tile and PS5 chat presentation) |
+| Home tile | `/data/homebrew/HARN00001` (`HARN00001`) |
+| HTTP companion | `http://192.168.4.100:8789/` (current `0.1.0-tile`, PID 107 at the 2026-11-18 17:06 recheck) |
+| New HTTP | `http://192.168.4.100:8791/` (PID 103 at the 2026-11-18 17:06 recheck) |
 | Certificate | `/data/ps5h-cert.pem` (public) |
 | Private key | `/data/ps5h-key.pem` (keep on the console) |
 | Certificate identity | `CN=PS5 Harness`, SAN `192.168.4.100`, `127.0.0.1`, `localhost` |
 | SHA-256 fingerprint | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
+
+The staged certificate's SAN is tied to `192.168.4.100`. If the console gets a
+new DHCP address, use the HTTP listener or regenerate the certificate with the
+new address in its SAN; otherwise HTTPS will show a name-mismatch warning. The
+discovery helper prints the HTTP origin for this reason.
 
 The certificate is self-signed (and valid as a local root), so treat it as a
 local CA and trust it on the client. Download `/data/ps5h-cert.pem` through the
@@ -435,6 +443,46 @@ secure context and the microphone prompt, but that bypass is only for testing;
 trust the certificate for normal use. The HTTP pages remain available and show
 the HTTPS/localhost guidance instead of silently failing when the mic button is
 pressed.
+
+### Connection loss, restarts and address changes
+
+The workspace keeps the last session in `--session` and retries the same origin
+with a short request timeout. A **Console connection lost** banner lets
+the user retry immediately or enter a new address/port; the token is carried to
+the new origin and removed from the address bar after the page loads. See
+[`docs/RECOVERY.md`](docs/RECOVERY.md) for the full support runbook.
+
+The HTTP listener binds `0.0.0.0`, so a changed DHCP address does not require a
+rebuild or source change. The serving port is whatever `--serve` chooses. A
+primary listener with `--discovery-port 8799` also answers a UDP query and
+publishes a public identity document at `/.well-known/ps5h`:
+
+```bash
+# Public document; it contains ports/addresses/build/title, never the token.
+curl http://192.168.4.100:8791/.well-known/ps5h
+
+# Find the console after its IP or port changed.
+python3 tools/ps5h-discover.py
+python3 tools/ps5h-discover.py --wait
+python3 tools/ps5h-discover.py --subnet 192.168.4.0/24   # if UDP is blocked
+```
+
+The helper, server and browser-runtime tests are host-side only in this tree;
+the running `0.1.0-tile` console process must be rebuilt and relaunched to
+include the new endpoint and banner. Use a fixed `--serve-token` for a customer
+setup; a token generated because the flag was omitted changes on every launch.
+
+`make reconnect-test` drives the served page in headless Chrome against local
+HTTP and HTTPS harnesses. It stops and restarts a harness, changes the origin
+and port while preserving the token, checks that the transcript reloads, and
+checks that a stale token produces the login/rejected-token state instead of a
+dead-console state. It does not make rest mode recoverable.
+
+This does **not** make the payload survive rest mode. Rest mode stops the
+userland process; after wake, re-run the exploit if required and launch the
+payload again. The saved session resumes and the home tile is re-registered on
+that launch when auto-install is enabled and the tile was not removed. The
+harness has no wake-on-LAN or background-service path.
 
 ## Plan mode, swarms and missions
 
@@ -650,12 +698,13 @@ do so.** It is a userland payload, not a background service:
   because the user explicitly launched a LAN listener; it is not started by the
   title path or by rest mode.
 - The listener is `src/server.cpp` (`bind`, `listen`, `accept`), disabled by
-  default and reachable only with the printed bearer token. `src/http.cpp` is
-  still the outbound libcurl client. `docs/SECURITY.md` records the listener
-  rule and the token boundary.
+  default; every `/api/*` call needs the bearer token, while the page, tile icon
+  and `/.well-known/ps5h` discovery document are public read-only surfaces.
+  `src/http.cpp` is still the outbound libcurl client. `docs/SECURITY.md`
+  records the listener rule and the token boundary.
 - Ports 9021 (elfldr) and 8888 (web file manager) are separate userland
   processes, not servers started implicitly by the harness
-  (`docs/CONSOLE-REPORT.md:13`). Suspend stops the console's userland, so those
+  (`docs/CONSOLE-REPORT.md`, Environment table). Suspend stops the console's userland, so those
   processes and the harness are not there to answer. Nothing in this repo asks
   the OS to keep them alive.
 
@@ -665,7 +714,11 @@ while the console sleeps is to queue jobs on an always-on host and, after the
 console wakes, launch `harness.elf` and run the queue against it. There is no
 wake-on-LAN, scheduler or background-service path here, and installing
 `eboot.bin` as a title does not add one. This is also why verification kept the
-console awake; waking it needs a human at the machine.
+console awake; waking it needs a human at the machine. The reconnect banner and
+discovery document described above make the post-wake relaunch easier to find
+and resume; they do not keep the process alive or start it automatically. Use
+[`docs/RECOVERY.md`](docs/RECOVERY.md) for the wake, re-jailbreak and relaunch
+sequence.
 
 Remaining:
 
@@ -687,7 +740,8 @@ Verified on the host:
   space budget, parallel executor), hardening (paths, redaction, sha256,
   streaming download with resume/verify, body cap, URL policy, deadlines),
   agent-profile, skill, recon, mission, session/compaction, power-tool and
-  browser-server tests, PS5 package validation and end-to-end provider suites
+  browser-server tests, a headless-Chrome reconnect test, PS5 package
+  validation and end-to-end provider suites
 - Suite passes under `-fsanitize=address,undefined`
 - 20,000-iteration ASan/UBSan fuzz runs on the JSON parser, manifest compiler,
   recon header/string/tree surface and mission parser; the recon and mission
@@ -738,6 +792,11 @@ Verified on the host:
 - **Browser workspace**: the token-auth server, static page, state/history
   routes, a full stub-backed turn, transcript persistence across restart and
   context compaction are covered by host tests and a live loopback smoke test
+- **Connection recovery and discovery**: `server_test` checks the public
+  `/.well-known/ps5h` document and the UDP responder without a token, and a
+  loopback smoke run exercised `tools/ps5h-discover.py` through both UDP and
+  the TCP fallback. The reconnect banner and its address hand-off are in the
+  served page; they have not yet been exercised in a real browser.
 - **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
   disk, checks the fSELF magic and the agent ELF header, and passes on the
   package above
@@ -749,16 +808,62 @@ Verified on the host:
   physical memory, mount enumeration and report formatting; `harness
   --resources` prints this Mac's profile
 
+> **Historical evidence.** The bullets below describe earlier builds and
+> captures on 2026-11-18, not the current `0.1.0-tile` process. The initial run
+> window was ≈09:18–12:05 local; the legacy 16:18 capture and the current
+> 17:06 PID recheck and 17:14 service recheck are identified in their bullets.
+> Exact per-build times were not recorded, and early launch PIDs were not
+> recorded unless stated. The only current live evidence is the **Home-screen
+> tile and PS5 chat** bullet; its values were rechecked at 17:14 PST.
+
 Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
 `0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
 recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
 `0.1.0-e6b6205`, final LAN workspace `0.1.0-final`, browser input layer
 `0.1.0-input`, HTTPS browser workspace `0.1.0-https`):
 
-- **Browser workspace, input and HTTPS** — `0.1.0-https` (source commit
-  `d45b323`) serves the 53,581-byte UI over **HTTPS on 8790** (`200`), while the
-  retained **HTTP 8789** input-build listener and the new **HTTP 8791** listener
-  both still answer. The HTTPS certificate chain validates with
+- **Home-screen tile and PS5 chat** — `0.1.0-tile` is the current browser
+  workspace. At startup it writes `/data/homebrew/HARN00001` from the console's
+  staged web shell (`/data/ps5h-web-shell.bin`, originally
+  `/system_ex/app/NPXS40106/eboot.bin`), `sce_sys/param.json` and a generated
+  512×512 `icon0.png`, all at `0777`. Payload processes run as
+  uid 1 and cannot read `/system_ex` directly, so the exact console shell is
+  staged at `/data/ps5h-web-shell.bin` and used as the copy source. At the
+  17:14 PST recheck the current probe returned HTTP 200 with `status:0`;
+  ShadowMountPlus reports the tile installed and registered, and the Home screen
+  panel supports Add, Check and Remove. Removal deletes the tile
+  folder, leaves `.ps5h-home-tile-removed`, uninstalls and rescans; a re-add
+  restores it. The release keeps the plain HTTP 8791 and HTTPS 8790 listeners,
+  a second same-artifact HTTP 8789 companion, the bearer gate and all 20 tools.
+  The exact current `/data/harness.elf` downloaded from the console is
+  **9,898,288 bytes**, sha256
+  `f47fe099b7cb919561d2990dc67ff9c61f350a69a2397c4273c2ce8c6731e9e6`.
+  At the live capture on 2026-11-18 17:00–17:14 PST, after a full power cycle,
+  the primary process was PID 103 on 8791/8790; the 8789 companion was PID 107.
+  `SIGSTOP` on PID 103 made 8791 and 8790 return `000` while 8789 stayed **200**;
+  after `SIGCONT`, both main ports returned **200** and 8789 remained **200**.
+  A separate stop test on PID 107 made 8789 return `000` while 8791 stayed
+  **200**, and 8789 returned **200** after resume. A 17:06 PST `ps5h-live`
+  recheck listed the same PIDs 103/107 and all three ports returned **200**; no
+  second stop test was run because these were the already-tested processes. A
+  final non-destructive check at 17:14 PST again returned **200** on all three.
+  The
+  earlier 2026-11-18 16:18 PST capture used PID 467 and a legacy input instance
+  PID 302 on 8789;
+  that is historical, not the current process. The console has no `/proc`, so the separate
+  process-image hash is not observable; provenance is the launch path,
+  PID/port ownership and executable file hash. The 16:26 outage was cleared by
+  the 16:59 power cycle, and the current process was relaunched at 17:00.
+  At 17:14 PST the current on-console tile folder has `eboot.bin` (5,211,435 bytes), `sce_sys/param.json`
+  (333 bytes) and a 1,049,236-byte 512x512 RGBA `icon0.png`, all mode `0777`.
+  The actual home-screen row was not observed from this remote session; the tile
+  is verified through ShadowMountPlus and the app state. Full details are in
+  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
+- **Browser workspace, input and HTTPS** — historical `0.1.0-https` (source
+  commit `d45b323`; exact capture time not recorded) served the 53,581-byte UI
+  over **HTTPS on 8790** (`200`), while the then-retained **HTTP 8789**
+  input-build listener and the then-new **HTTP 8791** listener both answered at
+  that historical release. The HTTPS certificate chain validates with
   `curl --cacert <client-copy-of-ps5h-cert.pem>`; unauthenticated `/api/state` is `401` on
   both schemes, and the authenticated state reports build `0.1.0-https` with all
   20 tools and the unchanged 12-message session (7,611 context chars, three
@@ -769,8 +874,10 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
   and a mocked final speech result, `dictated text` landed at the caret in the
   composer and no page errors occurred. On the HTTP origin the same click
   reported `HTTPS or localhost required`, opened the guidance, and made zero
-  microphone calls. The exact current `/data/harness.elf` is **9,761,576 bytes**,
-  sha256 `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b`.
+  microphone calls. At that historical `0.1.0-https` release (2026-11-18;
+  exact clock time not recorded) `/data/harness.elf` was **9,761,576 bytes**, sha256
+  `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b`
+  (not the current artifact; see the current tile item above).
   The certificate and trust steps are in
   [HTTPS and microphone trust](#https-and-microphone-trust); measured counters
   are in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
@@ -838,10 +945,18 @@ Not verified or not built:
 - **Rest mode is unsupported.** No payload runs while the console is in rest
   mode; this was not changed by this build, and it was not tested by suspending
   the console.
-- **The title path is uninstalled.** `eboot.bin` was not installed or launched
-  from the shell; the fake SELF, SFO key set and `--paid`/`--ptype` values still
-  need a loader. A title launch also supplies no argv or environment, so the
-  `file:` URI remains the runnable route.
+- **The recovery path is not console-tested in this change.** Discovery,
+  fixed-token/session relaunch, a changed `--serve` port and the home-tile
+  rewrite still need a hardware run using [`docs/RECOVERY.md`](docs/RECOVERY.md).
+  The page's lost-connection banner, same-origin automatic recovery, changed
+  origin with token carry and transcript reload, and stale-token login are
+  covered by `make reconnect-test` against local harnesses, not the console.
+- **The packaged PHAR00001 title is uninstalled.** The packaged `eboot.bin` was
+  not installed or launched from the shell; the separate HARN00001 home-screen
+  tile is installed and registered (current evidence above), but it was not
+  tapped from the home row. The packaged fake SELF, SFO key set and
+  `--paid`/`--ptype` values still need a loader. A title launch also supplies no
+  argv or environment, so the `file:` URI remains the runnable route.
 - **Firmware and exploit versions are unrecorded.** No shell was available to
   query them.
 - **USB and app-sandbox writes are untested.** No USB device was present and
@@ -858,7 +973,7 @@ Not verified or not built:
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.
 - **Browser input has no hardware controller or real dictation test.** A
-  Chromium browser loaded the current console HTTPS page, and the same test
+  Chromium browser loaded the historical `0.1.0-https` console HTTPS page, and the same test
   exercised the legacy HTTP fallback, the physical keyboard, mouse/OSK,
   synthetic DualSense, touchpad pointer and mocked speech paths. The HTTPS test
   profile bypassed the self-signed warning; the certificate was not installed in
@@ -880,3 +995,7 @@ Not verified or not built:
    address from the payload, persist a session under `/data`, and drive one
    model turn from a phone. (P6)
 5. Elevation helper for `/data/homebrew` writes (P4).
+
+## License
+
+MIT License. See [`LICENSE`](LICENSE).

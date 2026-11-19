@@ -18,6 +18,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
 
+      - name: Set up Node for the browser runtime test
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Build
         run: make
 

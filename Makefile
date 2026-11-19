@@ -105,6 +105,12 @@ build/server_test.o: tests/server_test.cpp | build
 build/server_test: $(LIB_OBJ) build/server_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+build/home_tile_test.o: tests/home_tile_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/home_tile_test: $(LIB_OBJ) build/home_tile_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
 # The provider round-trip test needs the cleartext-loopback policy, which only
 # exists in builds defining PS5H_TEST_HOOKS. Production targets never set it.
 E2E_DEFS := -DPS5H_TEST_HOOKS
@@ -121,7 +127,17 @@ build/policy_surface_test: tests/policy_surface_test.cpp src/policy.cpp | build
 build/ps5_package_test: tests/ps5_package_test.cpp | build
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/server_test build/e2e_agent_test build/ps5_package_test
+# Browser-engine check for the console reconnect path. Chrome is driven over
+# the DevTools protocol with no npm dependency. This target runs whenever node
+# is present; the test itself skips clearly if Chrome or openssl is absent.
+reconnect-test: build/harness
+	@if command -v node >/dev/null 2>&1; then \
+		CHROME_BIN="$(RECONNECT_CHROME)" node tests/reconnect_browser_test.mjs; \
+	else \
+		echo "reconnect_browser_test: SKIP (node unavailable)"; \
+	fi
+
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/server_test build/home_tile_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
 	./build/resources_test
@@ -134,6 +150,8 @@ test: build/harness build/harness_e2e build/policy_surface_test build/core_test 
 	./build/session_test
 	./build/power_tools_test
 	./build/server_test
+	./build/home_tile_test
+	@$(MAKE) reconnect-test
 	@$(MAKE) -C platform/ps5 host-assets
 	./build/ps5_package_test $(PS5_PACKAGE) $(PS5_PACKAGE_MODE)
 	./build/e2e_agent_test
@@ -240,4 +258,4 @@ endif
 clean:
 	rm -rf build examples/plugins/hello/hello.so
 
-.PHONY: all test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean
+.PHONY: all test reconnect-test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean

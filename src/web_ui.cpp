@@ -217,19 +217,339 @@ button.pill{font:inherit;cursor:pointer}
   .help-card dd{margin-bottom:8px}}
 @media (min-width:1151px){.mobile-nav{display:none}}
 </style>
+<style id="ps5-native-theme">
+/* PS5 system shell: dark translucent surfaces, a single blue accent and
+   generously spaced control-center tiles. This second layer overrides the
+   original theme without touching behavior or IDs. */
+:root{
+  --ps-bg:#03060b; --ps-panel:#080e18; --ps-panel-2:#0d1725;
+  --ps-line:rgba(139,174,216,.16); --ps-line-hot:rgba(73,158,255,.45);
+  --ps-text:#f3f7fc; --ps-muted:#9db2ca; --ps-dim:#6d829d;
+  --ps-blue:#0070d1; --ps-blue-bright:#2a9bff; --ps-cyan:#6ee7ff;
+  --ps-radius:18px; --ps-shadow:0 24px 80px rgba(0,0,0,.46);
+}
+html{background:#03060b}
+body{color:var(--ps-text);font:15px/1.55 "SST","Segoe UI","Helvetica Neue",Arial,sans-serif;
+  background:radial-gradient(80% 55% at 18% -8%,rgba(0,96,190,.42),transparent 62%),
+  radial-gradient(55% 45% at 100% 8%,rgba(20,96,190,.18),transparent 64%),
+  linear-gradient(135deg,#03060b 0%,#060b13 44%,#040911 100%);letter-spacing:.005em}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:linear-gradient(115deg,rgba(255,255,255,.025),transparent 32%,transparent 70%,rgba(0,112,209,.09));
+  mix-blend-mode:screen}
+#app{position:relative;z-index:1;grid-template-columns:272px minmax(0,1fr) 334px}
+.sidebar,.inspector{background:linear-gradient(180deg,rgba(15,26,43,.9),rgba(5,10,17,.94));
+  border-color:var(--ps-line);backdrop-filter:blur(24px) saturate(1.25)}
+.sidebar{padding:26px 18px 18px;border-right:1px solid var(--ps-line)}
+.inspector{border-left:1px solid var(--ps-line)}
+.brand{padding:0 6px 26px;gap:13px}
+.brand-mark{width:46px;height:46px;border-radius:14px;font-size:14px;letter-spacing:-.04em;color:#fff;
+  background:linear-gradient(145deg,#0084ed 0%,#0060b8 52%,#043b78 100%);
+  border:1px solid rgba(126,210,255,.48);box-shadow:0 0 0 1px rgba(0,0,0,.32) inset,0 12px 34px rgba(0,82,170,.36)}
+.brand-mark span{color:#bdeeff}
+.brand-name{font-size:12px;letter-spacing:.22em;color:#f4f9ff}
+.brand-sub{font-size:9px;letter-spacing:.2em;color:var(--ps-dim)}
+.new-session{border:1px solid rgba(78,159,244,.45);border-radius:13px;padding:12px 14px;
+  background:linear-gradient(180deg,rgba(0,112,209,.28),rgba(0,61,120,.2));font-size:13px;color:#f0f8ff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+.new-session:hover{background:linear-gradient(180deg,rgba(0,126,235,.4),rgba(0,61,120,.26));border-color:rgba(120,200,255,.7)}
+.nav{gap:5px}.nav button{min-height:42px;padding:9px 11px;border-radius:11px;color:var(--ps-muted);font-size:13px;font-weight:550}
+.nav button:hover{background:rgba(45,91,140,.22);color:#fff}
+.nav button.active{background:linear-gradient(90deg,rgba(0,112,209,.32),rgba(0,112,209,.06));color:#fff;box-shadow:inset 3px 0 0 var(--ps-blue-bright)}
+.nav .ico{width:23px;height:23px;border-radius:7px;background:rgba(0,112,209,.18);border:1px solid rgba(92,175,255,.2);display:grid;place-items:center;font-size:12px}
+.nav button.active .ico{background:rgba(0,112,209,.45);border-color:rgba(126,207,255,.48)}
+.section-label{font-size:9px;letter-spacing:.2em;color:var(--ps-dim);margin:25px 10px 9px}
+.session-item{background:linear-gradient(160deg,rgba(15,32,52,.92),rgba(7,16,28,.9));border:1px solid rgba(72,135,194,.28);border-radius:12px;padding:11px 12px}
+.session-title{font-size:12px;color:#eaf4ff}.session-meta{font-size:10px;color:var(--ps-dim)}
+.sidebar-foot{border-color:var(--ps-line);color:var(--ps-dim);font-size:10px;letter-spacing:.02em}
+.main{background:linear-gradient(180deg,rgba(4,9,16,.25),rgba(4,8,14,.52))}
+.topbar{height:auto;min-height:82px;padding:14px 28px;border-bottom:1px solid var(--ps-line);background:rgba(3,7,13,.42);backdrop-filter:blur(20px) saturate(1.2)}
+.crumb{font-size:9px;letter-spacing:.2em;color:#7188a4}
+h1{font-size:19px;letter-spacing:-.025em;margin-top:5px;font-weight:650}
+.status{gap:8px;font-size:10px;flex-wrap:wrap;justify-content:flex-end;max-width:60%}
+.pill{border:1px solid rgba(78,140,201,.32);background:rgba(11,24,40,.86);border-radius:9px;padding:7px 10px;font-size:9px;letter-spacing:.1em;color:#b3c9e0;white-space:nowrap}
+.pill.full{border-color:rgba(55,155,255,.5);color:#9fd5ff;background:rgba(0,79,151,.2)}
+.input-pill{border-color:rgba(70,163,225,.45);color:#c3e9ff;background:rgba(8,32,58,.82)}
+.input-pill.on{border-color:rgba(66,211,146,.55);color:#c9ffe5;background:rgba(4,65,49,.5)}
+.ctx{width:76px;height:4px;background:rgba(87,130,174,.2);border-radius:99px;overflow:hidden}
+.ctx i{background:linear-gradient(90deg,var(--ps-blue),var(--ps-cyan));box-shadow:0 0 10px rgba(49,196,255,.55)}
+.messages{padding:30px clamp(22px,4.3vw,64px) 24px;scrollbar-width:thin;scrollbar-color:rgba(74,132,191,.5) transparent;overscroll-behavior:contain}
+.hero{max-width:780px;margin:7vh auto 0;text-align:center}
+.hero-mark{width:76px;height:76px;border-radius:22px;font-size:18px;color:#fff;background:linear-gradient(145deg,#0084ed,#0055a6 58%,#042c5c);border:1px solid rgba(128,218,255,.52);box-shadow:0 0 0 1px rgba(255,255,255,.06) inset,0 24px 72px rgba(0,78,164,.36)}
+.hero-mark span{color:#c4f3ff}
+.hero h2{font-size:clamp(30px,3.2vw,40px);font-weight:640;letter-spacing:-.045em;margin:0 0 10px}
+.hero p{font-size:14px;line-height:1.7;color:var(--ps-muted);max-width:570px}
+.chips{gap:9px;margin-top:26px}.chip{border:1px solid rgba(78,143,203,.3);background:rgba(12,26,44,.8);color:#c6d9ed;border-radius:11px;padding:10px 14px;font-size:11px;letter-spacing:.01em;transition:.16s}
+.chip:hover{background:rgba(18,48,79,.9);border-color:rgba(94,191,255,.62);color:#fff;transform:translateY(-1px)}
+.msg{max-width:860px;margin:0 auto 16px;gap:14px;padding:14px 16px;background:linear-gradient(160deg,rgba(14,27,44,.65),rgba(6,14,24,.48));border:1px solid rgba(101,152,203,.16);border-radius:14px}
+.msg.user{background:linear-gradient(160deg,rgba(0,100,190,.24),rgba(8,25,44,.62));border-color:rgba(65,156,242,.32)}
+.msg .avatar{width:32px;height:32px;border-radius:10px;font-size:10px;background:rgba(0,104,190,.26);border:1px solid rgba(94,187,255,.35);color:#9de7ff}
+.msg.user .avatar{background:linear-gradient(145deg,#0084ed,#005099);border-color:#4eb8ff;color:#fff}
+.msg .who{font-size:9px;letter-spacing:.17em;color:#7791ae;margin-bottom:5px}
+.msg .text{font-size:14px;line-height:1.68;color:#dce8f6}.msg.user .text{color:#f2f8ff}
+.msg .text pre{border:1px solid rgba(89,140,194,.24);border-radius:11px;background:#03070d;padding:14px 16px}
+/* PS5 Messages transcript: blue outgoing bubbles, dark incoming bubbles. */
+.msg{width:auto;max-width:min(78%,720px);margin:0 0 12px;padding:0;display:flex;align-items:flex-end;gap:10px;background:none;border:0;border-radius:0;box-shadow:none}
+.msg.user{max-width:min(72%,640px);margin-left:auto;margin-right:0;flex-direction:row-reverse}
+.msg .avatar{width:30px;height:30px;flex:0 0 30px;margin:0 0 2px;border-radius:50%;font-size:9px;letter-spacing:.02em;background:#13253a;border:1px solid rgba(94,187,255,.4);color:#a9e8ff}
+.msg.user .avatar{background:linear-gradient(145deg,#0084ed,#005099);border-color:#4eb8ff;color:#fff}
+.msg .body{max-width:100%;min-width:0;padding:9px 13px 10px;border-radius:16px 16px 16px 5px;background:linear-gradient(160deg,#182635,#111c2a);border:1px solid rgba(139,174,216,.22);box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.msg.user .body{border-radius:16px 16px 5px 16px;background:linear-gradient(160deg,#0b7ce0,#0060b5);border-color:rgba(100,200,255,.6);box-shadow:0 8px 22px rgba(0,70,150,.28)}
+.msg .who{font-size:9px;letter-spacing:.15em;color:#8fabc8;margin:0 0 3px}
+.msg.user .who{color:rgba(235,249,255,.72)}
+.msg .text{font-size:14px;line-height:1.6;color:#e4eef9;overflow-wrap:anywhere}
+.msg.user .text{color:#fff}
+.msg .text pre{margin:8px 0 2px;padding:11px 13px;border-radius:10px;background:#03070d;border:1px solid rgba(89,140,194,.24)}
+.msg.user .text pre{background:rgba(0,22,48,.5);border-color:rgba(255,255,255,.16)}
+.composer-wrap{padding:0 clamp(22px,4.3vw,64px) 24px;background:linear-gradient(180deg,transparent,rgba(3,7,13,.68) 35%)}
+.composer{position:relative;display:flex;align-items:flex-end;gap:8px;min-height:58px;max-width:860px;border:1px solid rgba(88,152,216,.42);border-radius:24px;padding:8px 9px 8px 16px;background:linear-gradient(160deg,rgba(15,32,53,.96),rgba(6,15,27,.98));box-shadow:0 18px 55px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06)}
+.composer:focus-within{border-color:rgba(89,192,255,.78);box-shadow:0 0 0 3px rgba(0,112,209,.16),0 18px 55px rgba(0,0,0,.42)}
+.composer textarea{flex:1 1 auto;width:auto;min-width:0;min-height:24px;max-height:112px;padding:8px 0;font-size:15px;line-height:1.45;color:#f3f8ff;background:transparent;border:0;resize:none}
+.composer textarea::placeholder{color:#7f96b0}
+.composer-row{display:flex;align-items:center;flex:0 0 auto;width:auto;gap:4px;padding:0;margin:0}
+.composer-hint{display:none}
+.composer-tools{gap:3px}
+.icon-btn{width:34px;height:34px;min-width:34px;border-radius:50%;border:1px solid rgba(80,145,210,.32);background:rgba(10,27,47,.8);color:#c9e1f8;padding:0;font-size:14px}
+.mic-status{position:absolute;left:18px;bottom:calc(100% + 5px);max-width:calc(100% - 80px);padding:4px 8px;border-radius:7px;background:rgba(8,25,43,.96);font-size:10px;color:#a9d6f3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.mic-status:empty{display:none}
+.send{width:40px;height:40px;min-width:40px;border-radius:50%;padding:0;display:grid;place-items:center;font-size:0;border-color:#3db4ff;background:linear-gradient(180deg,#0084ed,#0054a9);box-shadow:0 8px 22px rgba(0,78,170,.4)}
+.send::after{content:"↑";font-size:19px;line-height:1;font-weight:700;color:#fff}
+.send:hover{filter:brightness(1.14)}
+.icon-btn:hover,.icon-btn:focus-visible{border-color:rgba(105,205,255,.75);background:rgba(17,51,84,.9)}
+.mic-status{font-size:10px;color:#8aa4bf;max-width:190px}
+.send{border-radius:11px;padding:9px 17px;font-size:12px;letter-spacing:.02em;border-color:#2ea9ff;background:linear-gradient(180deg,#0084ed,#0054a9);box-shadow:0 8px 22px rgba(0,78,170,.35)}
+.send:hover{filter:brightness(1.12)}
+.inspector{background:linear-gradient(180deg,rgba(12,22,37,.9),rgba(3,8,15,.94))}
+.tabs{padding:20px 18px 0;gap:6px}.tabs button{font-size:9px;letter-spacing:.16em;padding:8px 5px;color:#7189a5}.tabs button.active{color:#fff;border-color:var(--ps-blue-bright)}
+.panel{padding:16px 18px 10px}.panel h3{font-size:9px;letter-spacing:.19em;color:#6f88a5;margin-bottom:12px}
+.event{border-left:2px solid rgba(44,115,180,.5);color:#91aac5;font-size:10px;padding:4px 0 4px 10px;line-height:1.55}
+.event:last-child{border-color:var(--ps-blue-bright);color:#d4eaff}
+.tool{border:1px solid rgba(70,124,178,.2);border-radius:11px;padding:10px 11px;background:rgba(8,20,35,.8);margin-bottom:8px}
+.tool:hover{border-color:rgba(82,169,240,.5);background:rgba(13,32,53,.9)}
+.tool-name{font-size:10px;color:#a9d8ff}.tool-desc{font-size:10px;color:#7892ad}
+.stats{border-color:var(--ps-line);padding:16px 18px 18px;background:rgba(3,9,16,.5)}
+.stat{font-size:11px;padding:4px 0;color:#8ea7c0}.stat b{color:#e8f3ff}
+.safety{margin-top:14px;border-color:rgba(62,118,172,.22);background:rgba(7,18,30,.7);border-radius:10px;color:#6f88a3;font-size:10px;padding:10px 11px}
+.mobile-nav{background:rgba(7,18,31,.94);border:1px solid rgba(78,147,210,.36);border-radius:14px;padding:4px;box-shadow:0 16px 44px rgba(0,0,0,.55);backdrop-filter:blur(20px)}
+.mobile-nav button{font-size:11px;padding:9px 15px;border-radius:10px}.mobile-nav button.active{background:linear-gradient(180deg,rgba(0,112,209,.7),rgba(0,68,133,.7));color:#fff}
+#login{background:rgba(2,5,10,.88);backdrop-filter:blur(20px)}
+.login-card{background:linear-gradient(160deg,rgba(17,35,57,.98),rgba(5,14,25,.98));border-color:rgba(78,150,220,.4);border-radius:20px;box-shadow:0 30px 100px #000}
+.login-card input{border-color:rgba(75,144,210,.4);border-radius:10px;background:#050d18;color:#fff}
+.login-card button{border-radius:10px;background:linear-gradient(180deg,#0084ed,#0053a7);border-color:#2ea9ff}
+.osk{background:rgba(6,14,25,.97);border-color:rgba(83,158,225,.45);border-radius:18px;padding:13px;box-shadow:0 24px 90px #000d,inset 0 1px 0 rgba(255,255,255,.08)}
+.osk-head{color:#8ba6c2;font-size:10px}.osk-head b{color:#eaf7ff}
+.osk-key{border-color:rgba(81,148,211,.3);border-radius:9px;background:rgba(9,27,47,.9);color:#e5f2ff;min-height:37px}
+.osk-key:hover,.osk-key:focus-visible{border-color:rgba(101,208,255,.75);background:rgba(15,54,88,.95)}
+.input-help{background:rgba(1,4,9,.7);backdrop-filter:blur(18px)}
+.help-card{background:linear-gradient(160deg,rgba(17,35,57,.98),rgba(5,14,25,.98));border-color:rgba(80,153,222,.45);border-radius:20px;box-shadow:0 30px 100px #000}
+.help-card h2{font-size:22px}.help-card p{font-size:12px}.help-card dt{color:#d5edff}.help-card dd{color:#9bb0c8}
+.help-card .help-note{border-color:var(--ps-blue-bright);color:#9fc8e8}
+.help-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.help-head h2{flex:1;min-width:0}
+.help-head #help-close{flex:0 0 auto;margin:0;padding:7px 12px;font-size:11px}
+.help-card button{border-radius:10px;background:linear-gradient(180deg,#0084ed,#0053a7);border-color:#2ea9ff}
+#toast{background:rgba(10,30,51,.97);border-color:rgba(83,163,235,.5);border-radius:11px;box-shadow:0 12px 35px rgba(0,0,0,.45)}
+#virtual-pointer{border-color:#d8f5ff;background:rgba(0,132,237,.35);box-shadow:0 0 0 3px rgba(2,7,13,.8),0 0 22px rgba(52,199,255,.9)}
+.brand-mark,.hero-mark{display:flex;align-items:center;justify-content:center;gap:1px;font-weight:700}
+.topbar-head{display:flex;align-items:center;gap:12px;min-width:0}
+.topbar-mark{display:none;width:36px;height:36px;flex:0 0 36px;border-radius:11px;align-items:center;justify-content:center;gap:1px;font-size:11px;font-weight:700;color:#fff;
+  background:linear-gradient(145deg,#0084ed,#00539e);border:1px solid rgba(126,210,255,.5);box-shadow:0 6px 20px rgba(0,82,170,.3)}
+.topbar-mark span{color:#c3f1ff}
+.hero{max-width:820px;margin:6vh 0 0;padding:0 2px;text-align:left}
+.hero-status{display:flex;align-items:center;gap:10px;margin-bottom:18px;font-size:9px;letter-spacing:.18em;color:#86b8dd}
+.ready-dot{width:6px;height:6px;border-radius:50%;background:#4ee2a4;box-shadow:0 0 10px rgba(78,226,164,.9)}
+.hero-system{margin-left:auto;color:#5f7f9e;letter-spacing:.14em}
+.hero-mark{margin:0 0 18px}
+.hero h2{margin:0 0 10px;text-align:left}
+.hero p{margin:0;max-width:640px;text-align:left}
+.chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));justify-content:start;gap:10px;max-width:700px;margin-top:24px}
+.chip{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:3px;min-height:78px;padding:13px 15px;border-radius:12px}
+.chip-kicker{font-size:8px;letter-spacing:.18em;color:#6e9dc5}
+.chip-title{font-size:13px;font-weight:600;color:#eef7ff;line-height:1.3}
+.chip-desc{font-size:10px;color:#819bb5;line-height:1.45}
+.chip:hover .chip-title{color:#fff}
+@media (max-width:1180px){
+  #app{grid-template-columns:256px minmax(0,1fr)}
+  .inspector{display:none;position:fixed;right:0;top:82px;bottom:0;width:min(360px,100vw);z-index:14;box-shadow:-20px 0 60px rgba(0,0,0,.5);padding-bottom:68px;overflow-y:auto}
+  .inspector.mobile-open{display:flex}
+  .mobile-nav{display:flex;position:fixed;left:50%;bottom:max(10px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:15}
+  .messages{padding-bottom:96px}.composer-wrap{padding-bottom:88px}.status{max-width:55%}
+}
+@media (max-width:860px){
+  #app{grid-template-columns:1fr}.sidebar{display:none}
+  .topbar{min-height:78px;padding:12px 18px}.status{max-width:none;justify-content:flex-end}
+  .messages{padding:22px 16px 96px}.composer-wrap{padding:0 12px 88px}
+  .topbar-head{flex:1;min-width:0}.topbar-mark{display:flex}
+  .status{display:flex;flex:1;justify-content:flex-end;max-width:none;min-width:0}.status .pill{display:inline-flex}
+  .hero{margin-top:3vh;text-align:left}.hero h2{font-size:32px}.hero p{font-size:13px}
+  .chips{grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}
+  .inspector{top:78px;left:0;width:100vw}.status .pill#model,.status .ctx{display:none}
+  .composer-tools{gap:7px}.mic-status{max-width:120px}
+  .osk{left:10px;right:10px;bottom:calc(84px + env(safe-area-inset-bottom));transform:none;width:auto;max-height:calc(100dvh - 190px);overflow:auto;padding:10px}
+  .osk-grid{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.osk-key{min-height:36px;font-size:11px}
+  .osk-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .help-card{padding:19px}.help-card dl{grid-template-columns:1fr;gap:2px}.help-card dd{margin-bottom:8px}
+}
+@media (max-width:520px){
+  .topbar{padding:10px 13px;min-height:73px;gap:8px}.crumb{font-size:8px}h1{font-size:16px}
+  .status{gap:5px}.status .pill{font-size:8px;padding:5px 7px}.status .pill#model,.status .ctx,.status #input-pill{display:none}
+  .topbar-mark{width:32px;height:32px;flex-basis:32px;font-size:10px}.hero-status{font-size:8px;gap:8px}.hero-system{display:none}
+  .hero h2{font-size:27px}.chips{gap:7px;margin-top:16px}.chip{min-height:68px;padding:10px 11px;gap:3px}.chip-desc{font-size:9px}
+  .messages{padding:14px 11px 94px}.msg{padding:11px 11px;gap:9px;margin-bottom:12px}.msg .avatar{width:27px;height:27px;font-size:9px}
+  .msg .text{font-size:13px;line-height:1.6}.composer-wrap{padding:0 8px 84px}
+  .composer{padding:10px 9px 8px;border-radius:15px}.composer textarea{font-size:16px;min-height:44px}
+  .composer-hint{display:none}.composer-tools{width:100%;justify-content:space-between;gap:5px}.mic-status{max-width:105px;font-size:9px}
+  .icon-btn{min-width:33px;height:33px;padding:0 7px}.send{padding:8px 14px}
+  .hero-mark{width:64px;height:64px;font-size:15px}.hero h2{font-size:28px}.hero p{font-size:12px}.chips{gap:6px;margin-top:18px}.chip{padding:8px 10px;font-size:10px}
+  .osk{bottom:calc(76px + env(safe-area-inset-bottom));padding:8px}.osk-key{min-height:34px}.osk-head{font-size:9px}
+  .mobile-nav{bottom:max(7px,env(safe-area-inset-bottom))}.mobile-nav button{font-size:10px;padding:8px 11px}
+}
+@media (max-width:340px){
+  .topbar{padding:8px 11px;min-height:62px;gap:6px}.crumb{display:none}.topbar-mark{width:29px;height:29px;flex-basis:29px;font-size:9px}
+  .topbar h1{font-size:15px;margin-top:0;white-space:nowrap}.status{flex:0 0 auto}.status .pill{font-size:7px;padding:4px 6px}
+  .hero h2{font-size:24px}.hero p{font-size:11px}.chip-title{font-size:12px}
+}
+@media (max-width:520px){
+  .msg{max-width:88%;gap:7px;margin-bottom:9px}
+  .msg.user{max-width:84%}
+  .msg .avatar{width:26px;height:26px;flex-basis:26px;font-size:8px}
+  .msg .body{padding:8px 11px 9px;border-radius:14px 14px 14px 5px}
+  .msg.user .body{border-radius:14px 14px 5px 14px}
+  .msg .who{font-size:8px;margin-bottom:2px}.msg .text{font-size:13px;line-height:1.55}
+  .composer{padding:7px 7px 7px 14px;border-radius:22px;min-height:54px;gap:6px}
+  .composer textarea{font-size:16px;min-height:24px;padding:7px 0}
+  .composer-row{width:auto}.composer-tools{width:auto;gap:2px;justify-content:flex-end}
+  .icon-btn{width:32px;height:32px;min-width:32px;font-size:13px}
+  .send{width:38px;height:38px;min-width:38px}
+  .mic-status{left:14px;bottom:calc(100% + 4px);font-size:9px}
+}
+@media (max-height:620px) and (min-width:861px){
+  .messages{padding-top:16px}.hero{margin-top:2vh}.hero-mark{width:56px;height:56px}.hero h2{font-size:30px}.hero p{display:none}
+}
+/* Final transcript corrections: beat the earlier generic card and button rules. */
+.messages .msg{padding:0;background:none;border:0;box-shadow:none;border-radius:0;max-width:min(78%,720px)}
+.messages .msg.user{max-width:min(72%,640px);margin-left:auto;margin-right:0;background:none;border:0;box-shadow:none;border-radius:0;flex-direction:row-reverse}
+.messages .msg .avatar{margin:0 0 2px;border-radius:50%}
+.messages .msg .body{max-width:100%;min-width:0;border-radius:16px 16px 16px 5px}
+.messages .msg.user .body{border-radius:16px 16px 5px 16px}
+.composer .send{position:relative;width:40px;height:40px;min-width:40px;padding:0;border-radius:50%;font-size:0;text-indent:-999px;overflow:hidden;display:block;border-color:#3db4ff;background:linear-gradient(180deg,#0084ed,#0054a9);box-shadow:0 8px 22px rgba(0,78,170,.4)}
+.composer .send::after{content:"↑";position:absolute;inset:0;display:grid;place-items:center;text-indent:0;color:#fff;font-size:19px;line-height:1;font-weight:700}
+.composer .composer-tools{width:auto;flex-wrap:nowrap}
+@media (max-width:520px){
+  .messages .msg{max-width:88%;padding:0;gap:7px;margin-bottom:9px}
+  .messages .msg.user{max-width:84%}
+  .messages .msg .avatar{width:26px;height:26px;flex-basis:26px;font-size:8px}
+  .messages .msg .body{padding:8px 11px 9px;border-radius:14px 14px 14px 5px}
+  .messages .msg.user .body{border-radius:14px 14px 5px 14px}
+  .composer{padding:7px 7px 7px 14px;border-radius:22px;min-height:54px;gap:6px}
+  .composer textarea{font-size:16px;min-height:24px;padding:7px 0}
+  .composer .composer-tools{width:auto;gap:2px;justify-content:flex-end}
+  .composer .icon-btn{width:32px;height:32px;min-width:32px;padding:0;font-size:13px}
+  .composer .send{width:38px;height:38px;min-width:38px;padding:0;font-size:0}
+}
+/* Home screen app settings: a native-feeling PS5 settings surface. */
+.home-panel{background:#0d0e12;color:#f5f5f7;padding:0 0 18px}
+.home-tab .stats{display:none}
+.home-shell{padding:20px 17px 0}
+.home-kicker{font-size:9px;letter-spacing:.18em;color:#8f949e;margin-bottom:7px}
+.panel h3.home-title{font-size:30px;font-weight:300;line-height:1.15;letter-spacing:-.02em;
+  color:#f5f5f7;margin:0 0 16px}
+.home-card{display:flex;align-items:center;gap:14px;padding:12px;
+  border:1px solid rgba(245,245,247,.14);border-radius:16px;background:#0d0e12}
+.home-icon{width:78px;height:78px;flex:0 0 78px;border-radius:18px;object-fit:cover;
+  background:#0d0e12;border:1px solid rgba(245,245,247,.18)}
+.home-identity{min-width:0}
+.home-identity b{display:block;color:#f5f5f7;font-size:16px;font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.home-identity span{display:block;margin-top:4px;color:#aeb2ba;font-size:11px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.home-badge{display:inline-flex;align-items:center;width:max-content;margin-top:9px;
+  border-radius:999px;padding:3px 9px;font-size:10px;font-weight:600;
+  letter-spacing:.04em;border:1px solid rgba(245,245,247,.22);color:#f5f5f7;
+  background:#1a1c21}
+.home-badge.installed{background:#0070d1;border-color:#0070d1;color:#fff}
+.home-detail{margin:13px 1px 0;color:#b9bdc5;font-size:12px;line-height:1.55}
+.home-rows{margin-top:17px;border-top:1px solid rgba(245,245,247,.13)}
+.home-row{padding:12px 1px;border-bottom:1px solid rgba(245,245,247,.1)}
+.home-row-head{display:flex;justify-content:space-between;align-items:flex-start;
+  gap:14px}
+.home-row-label{color:#b9bdc5;font-size:12px;font-weight:400}
+.home-row strong{color:#f5f5f7;font-size:12px;font-weight:500;text-align:right;
+  min-width:0;overflow-wrap:anywhere}
+.home-row p{margin:5px 0 0;color:#8f949e;font-size:11px;line-height:1.5;
+  overflow-wrap:anywhere}
+.home-row code{display:block;color:#f5f5f7;background:#17191e;
+  border:1px solid rgba(245,245,247,.1);border-radius:8px;padding:6px 8px;
+  margin-top:7px;font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+  overflow-wrap:anywhere}
+.home-actions{display:flex;flex-direction:column;gap:8px;padding:16px 17px 0}
+.home-actions button{width:100%;min-height:44px;border-radius:10px;padding:10px 13px;
+  font-size:12px;font-weight:600;letter-spacing:.01em}
+.home-panel button:focus-visible,.home-panel a:focus-visible{
+  outline:2px solid #f5f5f7;outline-offset:2px}
+.home-primary{background:#0070d1;border:1px solid #0070d1;color:#fff}
+.home-primary:hover{border-color:#3f9aff;background:#087bdf}
+.home-secondary{background:#17191e;border:1px solid rgba(245,245,247,.24);color:#f5f5f7}
+.home-secondary:hover{border-color:#f5f5f7}
+.home-danger{background:transparent;border:1px solid rgba(245,245,247,.34);color:#f5f5f7}
+.home-danger:hover{border-color:#f5f5f7;background:#1b1d22}
+.home-panel button:disabled{opacity:.45;cursor:default}
+.home-confirm{margin:14px 17px 0;padding:14px;border:1px solid rgba(245,245,247,.38);
+  border-radius:14px;background:#17191e}
+.home-confirm.hidden{display:none}
+.home-confirm b{display:block;font-size:13px;font-weight:500;margin-bottom:5px}
+.home-confirm p{margin:0 0 12px;color:#b9bdc5;font-size:11px;line-height:1.5}
+.home-confirm-actions{display:flex;gap:8px}
+.home-confirm-actions button{flex:1;min-height:40px}
+@media (max-width:520px){
+  .home-shell{padding:16px 13px 0}.home-title{font-size:26px}.home-icon{width:68px;height:68px;flex-basis:68px}
+  .home-card{gap:11px;padding:9px}.home-detail{margin-top:9px;font-size:11px;line-height:1.45}
+  .home-rows{margin-top:12px}.home-row{padding:9px 1px}.home-actions{padding:12px 13px 0;gap:7px}
+  .home-actions button{min-height:40px;padding:8px 13px}.home-confirm{margin:12px 13px 0}
+}
+/* Reconnect banner: shown when the last HTTP poll could not reach the console. */
+#reconnect{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:45;
+  width:min(720px,calc(100vw - 24px));padding:14px 16px;border:1px solid rgba(255,157,107,.55);
+  border-radius:14px;background:linear-gradient(160deg,rgba(43,25,21,.98),rgba(13,15,21,.98));
+  box-shadow:0 20px 70px rgba(0,0,0,.55);color:#f5f5f7}
+#reconnect.hidden{display:none}
+.reconnect-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.reconnect-head i{width:7px;height:7px;border-radius:50%;background:#ff9d6b;box-shadow:0 0 12px #ff9d6b}
+.reconnect-head span{margin-left:auto;color:#9d9fa8;font:10px ui-monospace,SFMono-Regular,Menlo,monospace}
+#reconnect p{margin:6px 0 0;color:#c4b8b1;font-size:11px;line-height:1.5}
+.reconnect-form{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+.reconnect-form input{flex:1 1 260px;min-width:0;border:1px solid rgba(255,157,107,.35);
+  border-radius:9px;background:#110c0b;color:#fff;padding:9px 10px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}
+.reconnect-form button{border:1px solid rgba(255,157,107,.55);border-radius:9px;padding:9px 12px;
+  background:rgba(91,40,26,.75);color:#ffe8dc;font-size:11px;font-weight:600}
+.reconnect-form button:hover{border-color:#ffd0b8;background:rgba(128,55,34,.85)}
+.reconnect-form button:disabled{opacity:.5;cursor:default}
+.reconnect-help{margin-top:8px!important;color:#8f817a!important;font-size:10px!important}
+@media (max-width:520px){#reconnect{top:8px;padding:11px 12px}.reconnect-form button{flex:1}}
+</style>
 </head>
 <body>
+<div id="reconnect" class="hidden" role="status" aria-live="polite">
+  <div class="reconnect-head"><i></i><strong>Console connection lost</strong><span id="reconnect-last"></span></div>
+  <p id="reconnect-detail">Retrying this address automatically…</p>
+  <div class="reconnect-form">
+    <input id="reconnect-url" type="text" spellcheck="false" autocomplete="off" aria-label="Console address">
+    <button id="reconnect-now" type="button">Retry now</button>
+    <button id="reconnect-use" type="button">Use address</button>
+  </div>
+  <p class="reconnect-help">If the console was restarted, wake it, re-run the jailbreak and launch the harness payload again, then retry. Use the address shown by discovery if the IP or port changed.</p>
+</div>
 <div id="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">H<span>.</span></div>
-      <div><div class="brand-name">PS5 HARNESS</div><div class="brand-sub">CONSOLE WORKSPACE</div></div>
+      <div class="brand-mark" aria-hidden="true">PS<span>5</span></div>
+      <div><div class="brand-name">PS5 HARNESS</div><div class="brand-sub">SYSTEM WORKSPACE</div></div>
     </div>
     <button class="new-session" id="new-session">+  New session</button>
     <nav class="nav">
-      <button class="active"><span class="ico">◈</span>Chat</button>
+      <button class="active"><span class="ico">◈</span>Workspace</button>
       <button id="show-activity"><span class="ico">⌁</span>Activity</button>
       <button id="show-tools"><span class="ico">⌘</span>Tools</button>
+      <button id="show-home"><span class="ico">▣</span>Home screen</button>
     </nav>
     <div class="section-label">CURRENT SESSION</div>
     <div class="session-item">
@@ -240,8 +560,11 @@ button.pill{font:inherit;cursor:pointer}
   </aside>
 
   <main class="main">
-    <header class="topbar">
-      <div><div class="crumb">PS5 HARNESS / CHAT</div><h1>Console workspace</h1></div>
+    <header class="topbar" id="topbar">
+      <div class="topbar-head">
+        <div class="topbar-mark" aria-hidden="true">PS<span>5</span></div>
+        <div><div class="crumb">PLAYSTATION 5 / SYSTEM</div><h1>Console workspace</h1></div>
+      </div>
       <div class="status">
         <span class="pill full" id="mode">FULL ACCESS</span>
         <button class="pill input-pill" id="input-pill" type="button" title="Keyboard, controller and voice input help">KEYBOARD + MOUSE</button>
@@ -251,51 +574,101 @@ button.pill{font:inherit;cursor:pointer}
     </header>
     <section class="messages" id="messages">
       <div class="hero" id="hero">
-        <div class="hero-mark">H<span style="color:#2f8cff">.</span></div>
-        <h2>What are we researching?</h2>
-        <p>Map the console, inspect a binary, write a tool, or carry a long investigation across turns. Every tool result stays in this session until it is compacted.</p>
+        <div class="hero-status"><i class="ready-dot"></i><span>CONSOLE READY</span><span class="hero-system">PLAYSTATION 5 / WORKSPACE</span></div>
+        <div class="hero-mark" aria-hidden="true">PS<span>5</span></div>
+        <h2>Console workspace</h2>
+        <p>Your console is online. Start a task, inspect the system, or continue the saved trace. Everything runs here, with the tool boundaries you configured.</p>
         <div class="chips">
-          <button class="chip" data-prompt="Map the PS5 architecture and filesystem layout. Start with env_info, then inspect the most important mounts and binaries.">Map the console</button>
-          <button class="chip" data-prompt="Find the most interesting binaries under /data and identify their formats, imports and strings.">Audit binaries</button>
-          <button class="chip" data-prompt="Write a new local tool or plugin for this harness, then explain how to load it.">Build a tool</button>
-          <button class="chip" data-prompt="Plan a long research mission over the console, with explicit evidence and stop conditions.">Plan a mission</button>
+          <button class="chip" data-prompt="Map the PS5 architecture and filesystem layout. Start with env_info, then inspect the most important mounts and binaries."><span class="chip-kicker">SYSTEM</span><span class="chip-title">Map the system</span><span class="chip-desc">Architecture, mounts and binaries</span></button>
+          <button class="chip" data-prompt="Find the most interesting binaries under /data and identify their formats, imports and strings."><span class="chip-kicker">INSPECT</span><span class="chip-title">Inspect binaries</span><span class="chip-desc">Formats, imports and strings</span></button>
+          <button class="chip" data-prompt="Write a new local tool or plugin for this harness, then explain how to load it."><span class="chip-kicker">EXTEND</span><span class="chip-title">Build a tool</span><span class="chip-desc">Add a local capability</span></button>
+          <button class="chip" data-prompt="Plan a long research mission over the console, with explicit evidence and stop conditions."><span class="chip-kicker">MISSION</span><span class="chip-title">Plan a mission</span><span class="chip-desc">Evidence and stop conditions</span></button>
         </div>
       </div>
     </section>
     <div class="composer-wrap">
       <nav class="mobile-nav" aria-label="Workspace panels">
-        <button data-mobile="chat" class="active">Chat</button>
+        <button data-mobile="chat" class="active">Console</button>
         <button data-mobile="activity">Activity</button>
         <button data-mobile="tools">Tools</button>
+        <button data-mobile="home">Home</button>
       </nav>
       <form class="composer" id="composer">
-        <textarea id="prompt" rows="2" placeholder="Ask the harness to inspect, build, edit or investigate…"></textarea>
+        <textarea id="prompt" rows="1" placeholder="Send a message…"></textarea>
         <div class="composer-row">
-          <span class="composer-hint">Enter to send · Shift+Enter for a new line · Ctrl/⌘K focuses</span>
+          <span class="composer-hint">ENTER sends · SHIFT+ENTER adds a line · CTRL/⌘K focuses</span>
           <div class="composer-tools">
             <span class="mic-status" id="mic-status" aria-live="polite"></span>
             <button class="icon-btn" id="osk-button" type="button" title="Open the on-screen keyboard" aria-label="Open the on-screen keyboard">⌨</button>
             <button class="icon-btn" id="mic-button" type="button" title="Dictate with the browser microphone" aria-label="Dictate with the browser microphone" aria-pressed="false">🎙</button>
             <button class="icon-btn" id="input-help-button" type="button" title="Input help" aria-label="Input help">?</button>
-            <button class="send" id="send" type="submit">Send</button>
+            <button class="send" id="send" type="submit" aria-label="Send message" title="Send message">Send</button>
           </div>
         </div>
       </form>
     </div>
   </main>
 
-  <aside class="inspector">
+  <aside class="inspector" id="inspector">
     <div class="tabs">
       <button class="active" data-tab="activity">ACTIVITY</button>
       <button data-tab="tools">TOOLS</button>
+      <button data-tab="home">HOME SCREEN</button>
     </div>
     <div class="panel active" id="panel-activity">
-      <h3>LIVE TOOL LOG</h3>
+      <h3>SYSTEM ACTIVITY</h3>
       <div class="activity" id="activity"><div class="event">Waiting for a turn…</div></div>
     </div>
     <div class="panel" id="panel-tools">
       <h3>REGISTERED TOOLS</h3>
       <div id="tools"><div class="event">Loading…</div></div>
+    </div>
+    <div class="panel home-panel" id="panel-home">
+      <div class="home-shell">
+        <div class="home-kicker">PLAYSTATION 5 / HOME</div>
+        <h3 class="home-title">Home screen app</h3>
+        <div class="home-card">
+          <img class="home-icon" id="home-icon" src="/tile-icon.png" alt="PS5 Harness tile">
+          <div class="home-identity">
+            <b>PS5 Harness</b>
+            <span>Console workspace</span>
+            <span class="home-badge" id="home-badge">Pending</span>
+          </div>
+        </div>
+        <p class="home-detail" id="home-detail">Checking the tile registration.</p>
+        <div class="home-rows">
+          <div class="home-row">
+            <div class="home-row-head"><span class="home-row-label">Tile status</span><strong id="home-state">Pending</strong></div>
+          </div>
+          <div class="home-row">
+            <div class="home-row-head"><span class="home-row-label">Registration</span><strong id="home-registration">Checking…</strong></div>
+          </div>
+          <div class="home-row">
+            <div class="home-row-head"><span class="home-row-label">Home screen address</span><strong id="home-address">—</strong></div>
+          </div>
+          <div class="home-row">
+            <div class="home-row-head"><span class="home-row-label">Web-app shell</span><strong id="home-shell-state">Checking…</strong></div>
+            <p id="home-shell">—</p>
+          </div>
+          <div class="home-row">
+            <div class="home-row-head"><span class="home-row-label">Library</span><strong>Excluded</strong></div>
+          <p>This tile's folder is reserved and excluded from game-library scans.</p>
+          </div>
+        </div>
+        <div class="home-actions">
+          <button class="home-primary" id="home-add" type="button">Add to home screen</button>
+          <button class="home-secondary" id="home-check" type="button">Check status</button>
+          <button class="home-danger" id="home-remove" type="button">Remove from home screen</button>
+        </div>
+        <div class="home-confirm hidden" id="home-confirm">
+          <b>Remove home screen app?</b>
+          <p>This deletes the tile folder, then asks ShadowMountPlus to uninstall it and rescans. It stays off after restart until you add it again.</p>
+          <div class="home-confirm-actions">
+            <button class="home-danger" id="home-confirm-yes" type="button">Yes, remove</button>
+            <button class="home-secondary" id="home-confirm-no" type="button">No</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="stats">
       <div class="stat"><span>Context</span><b id="ctx-text">0 / 120k</b></div>
@@ -318,7 +691,7 @@ button.pill{font:inherit;cursor:pointer}
 </div>
 <div id="input-help" class="input-help hidden" role="dialog" aria-modal="true" aria-labelledby="input-help-title">
   <div class="help-card">
-    <h2 id="input-help-title">Keyboard, controller and voice</h2>
+    <div class="help-head"><h2 id="input-help-title">Keyboard, controller and voice</h2><button id="help-close" type="button">Close</button></div>
     <p>Use whichever input is in front of you. The composer stays a normal text field.</p>
     <dl>
       <dt>Keyboard + mouse</dt><dd>Type in the composer. Enter sends, Shift+Enter adds a line, Ctrl/⌘K returns to the composer. Every button, panel and tool chip is clickable.</dd>
@@ -328,7 +701,6 @@ button.pill{font:inherit;cursor:pointer}
     </dl>
     <p class="help-note">Speech recognition needs HTTPS or localhost. The default LAN HTTP address will show that requirement instead of silently failing.</p>
     <p class="help-note">A headset paired to the console is not visible to a remote browser. Select the controller or headset as the audio input on the device running this page. On a browser without Web Speech, use that device's own dictation key.</p>
-    <button id="help-close" type="button">Close</button>
   </div>
 </div>
 <div id="virtual-pointer" aria-hidden="true"></div>
@@ -346,7 +718,8 @@ button.pill{font:inherit;cursor:pointer}
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { token: '', busy: false, polling: false, history: [] };
+const state = { token: '', busy: false, polling: false, history: [], homeTile: null,
+  connected: null, lostAt: 0, reconnectDetail: '' };
 const AUTH_KEY = 'ps5h-token';
 
 function esc(value) {
@@ -371,10 +744,35 @@ function toast(message) {
   const el = $('toast'); el.textContent = message; el.classList.add('show');
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3000);
 }
-function setConnected(ok) {
+function hideReconnect() {
+  $('reconnect').classList.add('hidden');
+}
+function showReconnect(message) {
+  if (!state.token) return;
+  if (!state.lostAt) state.lostAt = Date.now();
+  state.reconnectDetail = message || '';
+  $('reconnect-last').textContent = window.location.origin;
+  $('reconnect-detail').textContent = message
+    ? 'Retrying this address automatically. ' + message
+    : 'Retrying this address automatically…';
+  if (!$('reconnect-url').value) $('reconnect-url').value = window.location.origin;
+  $('reconnect').classList.remove('hidden');
+}
+function setConnected(ok, message) {
+  const was = state.connected;
+  state.connected = !!ok;
   $('dot').style.background = ok ? 'var(--green)' : 'var(--red)';
   $('dot').style.boxShadow = '0 0 10px ' + (ok ? '#42d392' : '#ff6b7d');
-  $('conn').textContent = ok ? 'Connected to console' : 'Disconnected';
+  $('conn').textContent = ok ? 'Connected to console' : 'Disconnected · retrying';
+  if (ok) {
+    state.lostAt = 0;
+    hideReconnect();
+    hideLogin();
+    $('reconnect-url').value = window.location.origin;
+    if (was === false && !state.busy) loadHistory().catch(() => {});
+  } else {
+    showReconnect(message || '');
+  }
 }
 function setToken(token) {
   state.token = token || '';
@@ -386,21 +784,41 @@ function authHeaders() {
 }
 class AuthError extends Error {}
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { ...(options.headers || {}), ...authHeaders() }
-  });
-  if (response.status === 401) throw new AuthError('unauthorized');
-  const text = await response.text();
-  let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-  if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
-  return data;
+  const { timeoutMs = 6000, ...init } = options;
+  const controller = timeoutMs > 0 && typeof AbortController !== 'undefined'
+    ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers: { ...(init.headers || {}), ...authHeaders() },
+      signal: controller ? controller.signal : undefined
+    });
+    if (response.status === 401) throw new AuthError('unauthorized');
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
+    if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
+    return data;
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error('connection timed out');
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 function showLogin(message) {
   $('login').classList.remove('hidden');
   $('login-error').textContent = message || '';
   setTimeout(() => $('token-input').focus(), 30);
+}
+function showTokenRejected(message) {
+  state.connected = false;
+  $('dot').style.background = 'var(--red)';
+  $('dot').style.boxShadow = '0 0 10px #ff6b7d';
+  $('conn').textContent = 'Token rejected';
+  hideReconnect();
+  showLogin(message || 'Token rejected. Enter the current token.');
 }
 function hideLogin() { $('login').classList.add('hidden'); }
 
@@ -409,8 +827,8 @@ function addMessage(role, content, pending) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
   if (pending) wrap.id = 'pending-message';
-  wrap.innerHTML = '<div class="avatar">' + (role === 'user' ? 'YOU' : 'H') + '</div>' +
-    '<div class="body"><div class="who">' + (role === 'user' ? 'YOU' : 'HARNESS') + '</div>' +
+  wrap.innerHTML =     '<div class="avatar">' + (role === 'user' ? 'YOU' : 'PS') + '</div>' +
+    '<div class="body"><div class="who">' + (role === 'user' ? 'YOU' : 'CONSOLE') + '</div>' +
     '<div class="text">' + (pending
       ? '<span class="thinking"><i></i><i></i><i></i> working</span>'
       : fmt(content)) + '</div></div>';
@@ -430,8 +848,10 @@ function renderHistory(messages) {
     }
   }
   if (!shown) {
-    $('messages').innerHTML = '<div class="hero" id="hero"><div class="hero-mark">H<span style="color:#2f8cff">.</span></div><h2>What are we researching?</h2><p>Map the console, inspect a binary, write a tool, or carry a long investigation across turns. Every tool result stays in this session until it is compacted.</p><div class="chips"><button class="chip" data-prompt="Map the PS5 architecture and filesystem layout. Start with env_info, then inspect the most important mounts and binaries.">Map the console</button><button class="chip" data-prompt="Find the most interesting binaries under /data and identify their formats, imports and strings.">Audit binaries</button><button class="chip" data-prompt="Write a new local tool or plugin for this harness, then explain how to load it.">Build a tool</button><button class="chip" data-prompt="Plan a long research mission over the console, with explicit evidence and stop conditions.">Plan a mission</button></div></div>';
+    $('messages').innerHTML = '<div class="hero" id="hero"><div class="hero-status"><i class="ready-dot"></i><span>CONSOLE READY</span><span class="hero-system">PLAYSTATION 5 / WORKSPACE</span></div><div class="hero-mark" aria-hidden="true">PS<span>5</span></div><h2>Console workspace</h2><p>Your console is online. Start a task, inspect the system, or continue the saved trace. Everything runs here, with the tool boundaries you configured.</p><div class="chips"><button class="chip" data-prompt="Map the PS5 architecture and filesystem layout. Start with env_info, then inspect the most important mounts and binaries."><span class="chip-kicker">SYSTEM</span><span class="chip-title">Map the system</span><span class="chip-desc">Architecture, mounts and binaries</span></button><button class="chip" data-prompt="Find the most interesting binaries under /data and identify their formats, imports and strings."><span class="chip-kicker">INSPECT</span><span class="chip-title">Inspect binaries</span><span class="chip-desc">Formats, imports and strings</span></button><button class="chip" data-prompt="Write a new local tool or plugin for this harness, then explain how to load it."><span class="chip-kicker">EXTEND</span><span class="chip-title">Build a tool</span><span class="chip-desc">Add a local capability</span></button><button class="chip" data-prompt="Plan a long research mission over the console, with explicit evidence and stop conditions."><span class="chip-kicker">MISSION</span><span class="chip-title">Plan a mission</span><span class="chip-desc">Evidence and stop conditions</span></button></div></div>';
     bindChips();
+    $('messages').scrollTop = 0;
+    return;
   }
   $('messages').scrollTop = $('messages').scrollHeight;
 }
@@ -475,15 +895,77 @@ function renderState(data) {
     $('session-meta').textContent = (data.context.messages || 0) + ' messages · ' +
       (data.context.compactions || 0) + ' compactions';
   }
+  if (data.home_tile) renderHomeTile(data.home_tile);
   setConnected(true);
+}
+let homeBusy = false;
+function setHomeBusy(busy) {
+  homeBusy = busy;
+  ['home-add', 'home-check', 'home-remove', 'home-confirm-yes', 'home-confirm-no'].forEach((id) => {
+    const button = $(id); if (button) button.disabled = busy;
+  });
+  if (!busy && state.homeTile) renderHomeTile(state.homeTile);
+}
+function renderHomeTile(tile) {
+  if (!tile) return;
+  state.homeTile = tile;
+  const installed = tile.state === 'installed';
+  const badge = $('home-badge');
+  badge.textContent = installed ? 'Installed' : 'Pending';
+  badge.className = 'home-badge' + (installed ? ' installed' : '');
+  $('home-state').textContent = installed ? 'Installed' : 'Pending';
+  $('home-detail').textContent = tile.detail || (installed ? 'Registered with ShadowMountPlus.' : 'Checking the tile registration.');
+  $('home-address').textContent = tile.deeplink || '—';
+  $('home-shell-state').textContent = tile.shell_available ? 'Available' : 'Missing';
+  $('home-shell').textContent = tile.web_shell || '—';
+  let registration = 'Not registered';
+  if (installed) registration = 'Registered';
+  else if (!tile.service_reachable) registration = 'No service on 10101';
+  else if (!tile.scan_path_ok) registration = 'Scan path missing';
+  $('home-registration').textContent = registration;
+  const add = $('home-add');
+  if (add) { add.disabled = homeBusy; add.textContent = installed ? 'Reinstall tile' : 'Add to home screen'; }
+  if ($('home-check')) $('home-check').disabled = homeBusy;
+  if ($('home-remove')) $('home-remove').disabled = homeBusy || !tile.folder_present;
+  if (!tile.folder_present) $('home-confirm').classList.add('hidden');
+}
+async function refreshHomeTile() {
+  if (!state.token || homeBusy) return;
+  setHomeBusy(true);
+  try {
+    const data = await api('/api/home-tile', { timeoutMs: 15000 });
+    renderHomeTile(data.home_tile);
+  } catch (error) {
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
+    else toast(String(error.message || error));
+  } finally { setHomeBusy(false); }
+}
+async function homeAction(method, label) {
+  if (!state.token || homeBusy) return;
+  setHomeBusy(true);
+  try {
+    const data = await api('/api/home-tile', { method, timeoutMs: 30000 });
+    renderHomeTile(data.home_tile);
+    const tile = data.home_tile || {};
+    if (tile.state === 'installed') toast('Home screen app installed');
+    else if (!data.ok && data.error) toast(String(data.error));
+    else toast(label + ': ' + (tile.detail || 'Pending'));
+    await refreshState();
+  } catch (error) {
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
+    else toast(String(error.message || error));
+  } finally { setHomeBusy(false); }
 }
 async function refreshState() {
   if (state.polling || !state.token) return;
   state.polling = true;
-  try { renderState(await api('/api/state')); }
+  try { renderState(await api('/api/state', { timeoutMs: 8000 })); }
   catch (error) {
-    if (error instanceof AuthError) showLogin('Token rejected. Enter the current token.');
-    else setConnected(false);
+    if (error instanceof AuthError) {
+      showTokenRejected('Token rejected. Enter the current token. If the payload was restarted with a generated token, use the new one.');
+    } else {
+      setConnected(false, String(error.message || error));
+    }
   } finally { state.polling = false; }
 }
 async function loadHistory() {
@@ -492,7 +974,7 @@ async function loadHistory() {
     state.history = data.messages || [];
     renderHistory(state.history);
   } catch (error) {
-    if (error instanceof AuthError) showLogin('Token rejected. Enter the current token.');
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
   }
 }
 async function boot() {
@@ -515,7 +997,8 @@ $('login-form').addEventListener('submit', async (event) => {
     hideLogin(); await loadHistory(); await refreshState();
     setInterval(refreshState, 1600);
   } catch (error) {
-    showLogin(error instanceof AuthError ? 'Token rejected.' : String(error.message || error));
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
+    else showLogin(String(error.message || error));
   }
 });
 $('new-session').addEventListener('click', async () => {
@@ -526,19 +1009,25 @@ $('new-session').addEventListener('click', async () => {
 });
 $('show-activity').addEventListener('click', () => selectTab('activity'));
 $('show-tools').addEventListener('click', () => selectTab('tools'));
+$('show-home').addEventListener('click', () => selectTab('home'));
 function selectTab(name) {
+  document.body.classList.toggle('home-tab', name === 'home');
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  $('panel-activity').classList.toggle('active', name === 'activity');
-  $('panel-tools').classList.toggle('active', name === 'tools');
+  ['activity', 'tools', 'home'].forEach((panel) => {
+    const element = $('panel-' + panel);
+    if (element) element.classList.toggle('active', name === panel);
+  });
   if (window.innerWidth <= 1150) {
     document.querySelector('.inspector').classList.add('mobile-open');
     document.body.classList.add('mobile-panel');
     document.querySelectorAll('[data-mobile]').forEach((b) => b.classList.toggle('active', b.dataset.mobile === name));
   }
+  if (name === 'home') refreshHomeTile();
 }
 function closeMobilePanel() {
   document.querySelector('.inspector').classList.remove('mobile-open');
   document.body.classList.remove('mobile-panel');
+  document.body.classList.remove('home-tab');
   document.querySelectorAll('[data-mobile]').forEach((b) => b.classList.toggle('active', b.dataset.mobile === 'chat'));
 }
 document.querySelectorAll('[data-mobile]').forEach((button) => {
@@ -563,7 +1052,7 @@ $('composer').addEventListener('submit', async (event) => {
   try {
     const data = await api('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message }), timeoutMs: 600000
     });
     const pending = $('pending-message'); if (pending) pending.remove();
     if (data.ok) addMessage('assistant', data.answer || '(no content)', false);
@@ -571,7 +1060,7 @@ $('composer').addEventListener('submit', async (event) => {
     await refreshState();
   } catch (error) {
     const pending = $('pending-message'); if (pending) pending.remove();
-    if (error instanceof AuthError) showLogin('Token rejected. Enter the current token.');
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
     else addMessage('assistant', 'Error: ' + String(error.message || error), false);
   } finally {
     state.busy = false; $('send').disabled = false; $('prompt').focus();
@@ -579,6 +1068,65 @@ $('composer').addEventListener('submit', async (event) => {
 });
 $('prompt').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('composer').requestSubmit(); }
+});
+$('home-add').addEventListener('click', () => homeAction('POST', 'Add'));
+$('home-check').addEventListener('click', refreshHomeTile);
+$('home-remove').addEventListener('click', () => {
+  if (homeBusy) return;
+  $('home-confirm').classList.remove('hidden');
+  $('home-confirm-no').focus();
+});
+$('home-confirm-no').addEventListener('click', () => {
+  $('home-confirm').classList.add('hidden');
+  $('home-remove').focus();
+});
+$('home-confirm-yes').addEventListener('click', async () => {
+  $('home-confirm').classList.add('hidden');
+  await homeAction('DELETE', 'Remove');
+});
+
+function consoleUrlFromInput() {
+  let value = String($('reconnect-url').value || '').trim();
+  if (!value) throw new Error('Enter the console address or URL.');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    value = window.location.protocol + '//' + value;
+  }
+  const url = new URL(value);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Use an http:// or https:// address.');
+  }
+  url.pathname = '/';
+  url.search = '';
+  url.hash = '';
+  return url;
+}
+function useConsoleAddress() {
+  try {
+    const url = consoleUrlFromInput();
+    if (url.origin === window.location.origin) {
+      $('reconnect-detail').textContent = 'That is the current address. Retrying now…';
+      refreshState();
+      return;
+    }
+    if (state.token) url.searchParams.set('token', state.token);
+    window.location.assign(url.toString());
+  } catch (error) {
+    const message = String(error.message || error);
+    $('reconnect-detail').textContent = message;
+    toast(message);
+  }
+}
+$('reconnect-now').addEventListener('click', () => {
+  $('reconnect-detail').textContent = 'Retrying this address now…';
+  refreshState();
+});
+$('reconnect-use').addEventListener('click', useConsoleAddress);
+$('reconnect-url').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') { event.preventDefault(); useConsoleAddress(); }
+});
+window.addEventListener('online', () => { if (state.token) refreshState(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.token && !state.busy) refreshState();
 });
 
 /* ---- input layer: keyboard, mouse, controller, touchpad and dictation ---- */

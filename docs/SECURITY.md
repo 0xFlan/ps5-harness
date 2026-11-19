@@ -25,6 +25,7 @@ people write for it, and the model provider it talks to.
 | Prompt-injected content | Text the model fetches (pages, descriptions, API output) | Tool output is data; no instruction-following from fetched text |
 | Compromised or curious model provider | Sees every message and tool result | Redaction; never place secrets in context |
 | LAN attacker | Can reach the console's ports | No listening service by default; auth if `--serve` is added |
+| LAN scanner | Can query the public discovery document and UDP beacon | Discovery returns only service/build/title/ports/addresses; no token, session, tools or paths; UDP can be disabled |
 | The model itself, misused | Chooses tools and arguments | Allowlists, deadlines, canonicalised paths, least privilege |
 
 ## Trust boundary
@@ -128,7 +129,11 @@ test that proves it must ship with the change.
     bodies, closes every connection after one response, and serves no path
     from disk. The session file is checked against the write roots and the
     secret-name rules before use. Keep the listener off untrusted networks and
-    stop it when finished.
+    stop it when finished. Two public read-only exceptions are deliberate: the
+    page/tile icon needed to draw the token prompt, and `/.well-known/ps5h`
+    plus its UDP query. Discovery exposes only service/build/title/ports and
+    addresses, never the token, session, tools or filesystem paths. Set
+    `--discovery-port 0` to disable UDP.
 16. **Power tools do not bypass the write boundary.** `fs_mkdir`, `fs_move`
     and `fs_delete` use the same canonicalisation, root check and secret-name
     denial as `fs_write`. Delete is never recursive. `hexdump` and `fs_search`

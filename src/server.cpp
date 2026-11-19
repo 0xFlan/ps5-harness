@@ -10,12 +10,14 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -74,6 +76,12 @@ struct Shared {
   std::atomic<long long> total_tokens{0};
   std::atomic<int> steps{0};
   std::atomic<bool> usage_reported{false};
+  std::unique_ptr<HomeTile> home_tile;
+  // Filled after the listeners have chosen their real ports. Discovery must
+  // report the ports that actually opened, not the requested defaults.
+  int http_port = 0;
+  int https_port = 0;
+  long long started_at = 0;
 };
 
 std::string lower(std::string value) {
@@ -205,7 +213,7 @@ void respond(int fd, int status, const std::string& type, const std::string& bod
                      "Referrer-Policy: no-referrer\r\n";
   if (type == "text/html; charset=utf-8") {
     head += "Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; "
-            "script-src 'unsafe-inline'; img-src data:; connect-src 'self'\r\n";
+            "script-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n";
   }
   head += "\r\n";
   send_all(fd, head + body);
@@ -227,28 +235,35 @@ bool authorized(const Request& request, const std::string& token) {
   return diff == 0;
 }
 
-std::string local_address() {
-  // Prefer a real LAN address over loopback in the printed hint.
-  std::string fallback = "127.0.0.1";
-  FILE* file = std::fopen("/proc/net/fib_trie", "rb");
-  if (file != nullptr) {
-    std::fclose(file);
-  }
-  // getifaddrs is available on macOS and FreeBSD, including the PS5 payload.
-  struct ifaddrs* addresses = nullptr;
-  if (::getifaddrs(&addresses) != 0) return fallback;
-  for (struct ifaddrs* it = addresses; it != nullptr; it = it->ifa_next) {
+std::vector<std::string> local_addresses() {
+  std::vector<std::string> addresses;
+  struct ifaddrs* interfaces = nullptr;
+  if (::getifaddrs(&interfaces) != 0) return addresses;
+  for (struct ifaddrs* it = interfaces; it != nullptr; it = it->ifa_next) {
     if (it->ifa_addr == nullptr || it->ifa_addr->sa_family != AF_INET) continue;
     const auto* address = reinterpret_cast<const sockaddr_in*>(it->ifa_addr);
     char text[INET_ADDRSTRLEN] = {};
     if (::inet_ntop(AF_INET, &address->sin_addr, text, sizeof text) == nullptr) continue;
     const std::string value(text);
     if (value == "127.0.0.1") continue;
-    fallback = value;
-    if (value.rfind("192.168.", 0) == 0 || value.rfind("10.", 0) == 0) break;
+    if (std::find(addresses.begin(), addresses.end(), value) == addresses.end()) {
+      addresses.push_back(value);
+    }
   }
-  ::freeifaddrs(addresses);
-  return fallback;
+  ::freeifaddrs(interfaces);
+  if (addresses.empty()) addresses.push_back("127.0.0.1");
+  return addresses;
+}
+
+std::string local_address() {
+  // Prefer a real LAN address over loopback in the printed hint.
+  const std::vector<std::string> addresses = local_addresses();
+  for (const std::string& value : addresses) {
+    if (value.rfind("192.168.", 0) == 0 || value.rfind("10.", 0) == 0) {
+      return value;
+    }
+  }
+  return addresses.front();
 }
 
 std::string one_line(const std::string& value, std::size_t limit) {
@@ -262,6 +277,7 @@ std::string one_line(const std::string& value, std::size_t limit) {
 }
 
 Json state_json(const Shared& shared) {
+  if (shared.home_tile) shared.home_tile->refresh_if_due();
   Json state = Json::object();
   state["build"] = shared.options.build_id;
   state["model"] = shared.options.model;
@@ -289,7 +305,33 @@ Json state_json(const Shared& shared) {
   usage["reported"] = shared.usage_reported.load();
   state["usage"] = usage;
   state["events"] = shared.activity->snapshot();
+  if (shared.home_tile) state["home_tile"] = shared.home_tile->state();
   return state;
+}
+
+Json discovery_json(const Shared& shared) {
+  Json out = Json::object();
+  out["ok"] = true;
+  out["service"] = "ps5-harness";
+  out["protocol"] = 1;
+  out["build"] = shared.options.build_id;
+  out["title_id"] = shared.options.home_tile.title_id;
+  out["http_port"] = shared.http_port;
+  out["https_port"] = shared.https_port;
+  out["started_at"] = shared.started_at;
+  Json addresses = Json::array();
+  Json urls = Json::array();
+  for (const std::string& address : local_addresses()) {
+    addresses.push_back(address);
+    urls.push_back("http://" + address + ":" + std::to_string(shared.http_port) + "/");
+    if (shared.https_port > 0) {
+      urls.push_back("https://" + address + ":" +
+                     std::to_string(shared.https_port) + "/");
+    }
+  }
+  out["addresses"] = addresses;
+  out["urls"] = urls;
+  return out;
 }
 
 void refresh_metadata(Shared* shared) {
@@ -390,6 +432,25 @@ void handle_connection(int fd, Shared* shared) {
     ::close(fd);
     return;
   }
+  if (path == "/tile-icon.png") {
+    // Tile art is public: it is the same generic icon written into the tile
+    // folder, and the UI needs it in an <img> tag where bearer headers are not
+    // available. It contains no session or token data.
+    respond(fd, 200, "image/png", home_tile_icon_png());
+    ::close(fd);
+    return;
+  }
+  if (path == "/.well-known/ps5h") {
+    // Public discovery document: identity and the real listener ports only.
+    // It contains no token, session content, filesystem paths or tool data.
+    if (request.method != "GET") {
+      respond_json(fd, 405, Json::object());
+    } else {
+      respond_json(fd, 200, discovery_json(*shared));
+    }
+    ::close(fd);
+    return;
+  }
   if (path.rfind("/api/", 0) != 0) {
     respond(fd, 404, "text/plain; charset=utf-8", "not found\n");
     ::close(fd);
@@ -409,6 +470,39 @@ void handle_connection(int fd, Shared* shared) {
       respond_json(fd, 405, Json::object());
     } else {
       respond_json(fd, 200, state_json(*shared));
+    }
+    ::close(fd);
+    return;
+  }
+
+  if (path == "/api/health") {
+    if (request.method != "GET") {
+      respond_json(fd, 405, Json::object());
+    } else {
+      Json body = Json::object();
+      body["ok"] = true;
+      body["build"] = shared->options.build_id;
+      if (shared->home_tile) body["home_tile"] = shared->home_tile->state();
+      respond_json(fd, 200, body);
+    }
+    ::close(fd);
+    return;
+  }
+
+  if (path == "/api/home-tile") {
+    if (!shared->home_tile) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "home tile manager unavailable";
+      respond_json(fd, 503, body);
+    } else if (request.method == "GET") {
+      respond_json(fd, 200, shared->home_tile->check());
+    } else if (request.method == "POST") {
+      respond_json(fd, 200, shared->home_tile->install());
+    } else if (request.method == "DELETE") {
+      respond_json(fd, 200, shared->home_tile->remove());
+    } else {
+      respond_json(fd, 405, Json::object());
     }
     ::close(fd);
     return;
@@ -605,6 +699,47 @@ int open_listener(int requested_port, int* actual_port, std::string* error) {
   return listener;
 }
 
+int open_discovery_socket(int port, std::string* error) {
+  const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    *error = "cannot create discovery socket";
+    return -1;
+  }
+  int reuse = 1;
+  ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof reuse);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_ANY);
+  address.sin_port = htons(static_cast<unsigned short>(port));
+  if (::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0) {
+    *error = "cannot bind discovery port " + std::to_string(port);
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+void serve_discovery(int fd, Shared* shared) {
+  char buffer[128];
+  while (true) {
+    sockaddr_in peer{};
+    socklen_t peer_length = sizeof peer;
+    const ssize_t got = ::recvfrom(fd, buffer, sizeof buffer - 1, 0,
+                                   reinterpret_cast<sockaddr*>(&peer),
+                                   &peer_length);
+    if (got < 0) {
+      if (errno == EINTR) continue;
+      shared->log("discovery: receive failed");
+      break;
+    }
+    const std::string query = trim(std::string(buffer, static_cast<std::size_t>(got)));
+    if (query != "PS5H_DISCOVER_V1") continue;
+    const std::string answer = discovery_json(*shared).dump();
+    ::sendto(fd, answer.data(), answer.size(), 0,
+             reinterpret_cast<sockaddr*>(&peer), peer_length);
+  }
+}
+
 void accept_connections(int listener, SSL_CTX* tls_context, Shared* shared) {
   while (true) {
     sockaddr_in peer{};
@@ -672,7 +807,7 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   SSL_CTX* tls_context = nullptr;
   int https_port = 0;
   int tls_listener = -1;
-  if (options.https_port > 0) {
+  if (options.https || options.https_port > 0) {
     tls_context = make_tls_context(options, log);
     if (tls_context == nullptr) {
       ::close(listener);
@@ -686,6 +821,19 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
       return 1;
     }
   }
+
+  // The home tile is created after the listeners so a changed --serve port is
+  // written into the tile instead of the requested/default value. Install it
+  // before accepting browser requests so the first state poll already has a
+  // real registration answer. A missing ShadowMount service or web-app shell
+  // is recorded as Pending, not fatal.
+  shared->http_port = port;
+  shared->https_port = https_port;
+  shared->started_at = static_cast<long long>(std::time(nullptr));
+  shared->options.home_tile.deeplink_port = port;
+  shared->home_tile = std::make_unique<HomeTile>(shared->options.home_tile,
+                                                 shared->options.http, log);
+  shared->home_tile->start();
 
   const std::string ip = local_address();
   log("browser UI listening on 0.0.0.0:" + std::to_string(port) +
@@ -707,6 +855,21 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
     std::thread([tls_listener, tls_context, shared]() {
       accept_connections(tls_listener, tls_context, shared.get());
     }).detach();
+  }
+
+  if (options.discovery_port > 0) {
+    std::string discovery_error;
+    const int discovery_fd = open_discovery_socket(options.discovery_port,
+                                                   &discovery_error);
+    if (discovery_fd < 0) {
+      log("discovery: " + discovery_error + "; UDP discovery is unavailable");
+    } else {
+      log("discovery: UDP " + std::to_string(options.discovery_port) +
+          " (query PS5H_DISCOVER_V1)");
+      std::thread([discovery_fd, shared]() {
+        serve_discovery(discovery_fd, shared.get());
+      }).detach();
+    }
   }
   accept_connections(listener, nullptr, shared.get());
   ::close(listener);

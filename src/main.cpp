@@ -17,6 +17,7 @@
 #include "ps5h/core.h"
 #include "ps5h/delegation.h"
 #include "ps5h/endpoints.h"
+#include "ps5h/home_tile.h"
 #include "ps5h/json.h"
 #include "ps5h/mission.h"
 #include "ps5h/paths.h"
@@ -590,8 +591,12 @@ void print_usage() {
       "  --tls-key <file>     PEM private key for --serve-tls\n"
       "  --ui                 Alias for --serve 8787\n"
       "  --serve-token <tok>  Fixed bearer token for --serve (generated if omitted)\n"
+      "  --discovery-port <n> UDP discovery port (default 8799; 0 disables)\n"
       "  --session <file>     Persist the browser conversation to this JSON file\n"
       "  --context-chars <n>  Transcript budget before compaction (default 120000)\n"
+      "  --web-shell <file>   Console web-app shell for the home-screen tile\n"
+      "  --homebrew-root <dir> Homebrew scan root (default: /data/homebrew)\n"
+      "  --home-tile-autostart  Install the home-screen tile at startup on this host\n"
       "  --resources          Report CPUs, memory, limits and mount space, then exit\n"
       "  --log <file>         Append diagnostics to a file (console default: /data/ps5-harness-agent.log)\n"
       "  --help               This message\n\n"
@@ -640,6 +645,7 @@ int main(int argc, char** argv) {
   std::string mission_path;
   int serve_port = 8787;
   int https_port = 8790;
+  int discovery_port = 8799;
   std::string tls_cert;
   std::string tls_key;
   std::string serve_token;
@@ -649,6 +655,11 @@ int main(int argc, char** argv) {
   bool max_steps_from_flag = false;
   int max_delegation_depth = 2;
   bool max_depth_from_flag = false;
+  HomeTileConfig home_tile;
+#if defined(PS5H_PS5_TARGET)
+  // The console has a real /data/homebrew and the console's own web-app shell.
+  home_tile.auto_install = true;
+#endif
 
   ModelConfig config;
   std::vector<std::string> allowed_roots;
@@ -721,8 +732,16 @@ int main(int argc, char** argv) {
       tls_key = next("--tls-key");
     } else if (arg == "--serve-token") {
       serve_token = next("--serve-token");
+    } else if (arg == "--discovery-port") {
+      discovery_port = std::atoi(next("--discovery-port").c_str());
     } else if (arg == "--session") {
       session_path = next("--session");
+    } else if (arg == "--web-shell") {
+      home_tile.web_shell_path = next("--web-shell");
+    } else if (arg == "--homebrew-root") {
+      home_tile.homebrew_root = next("--homebrew-root");
+    } else if (arg == "--home-tile-autostart") {
+      home_tile.auto_install = true;
     } else if (arg == "--context-chars") {
       context_chars = static_cast<std::size_t>(std::strtoul(
           next("--context-chars").c_str(), nullptr, 10));
@@ -835,6 +854,36 @@ int main(int argc, char** argv) {
       if (root["skills_dir"].is_string() && !skills_dir_from_flag) {
         skills_dir = root["skills_dir"].as_string();
       }
+      if (root["web_shell"].is_string()) {
+        home_tile.web_shell_path = root["web_shell"].as_string();
+      }
+      if (root["homebrew_root"].is_string()) {
+        home_tile.homebrew_root = root["homebrew_root"].as_string();
+      }
+      const Json& tile = root["home_tile"];
+      if (tile.is_object()) {
+        if (tile["title_id"].is_string()) {
+          home_tile.title_id = tile["title_id"].as_string();
+        }
+        if (tile["title_name"].is_string()) {
+          home_tile.title_name = tile["title_name"].as_string();
+        }
+        if (tile["web_shell"].is_string()) {
+          home_tile.web_shell_path = tile["web_shell"].as_string();
+        }
+        if (tile["homebrew_root"].is_string()) {
+          home_tile.homebrew_root = tile["homebrew_root"].as_string();
+        }
+        if (tile["marker"].is_string()) {
+          home_tile.marker_path = tile["marker"].as_string();
+        }
+        if (tile["shadowmount_url"].is_string()) {
+          home_tile.shadowmount_url = tile["shadowmount_url"].as_string();
+        }
+        if (tile["auto_install"].is_bool()) {
+          home_tile.auto_install = tile["auto_install"].as_bool();
+        }
+      }
       if (root["system_prompt"].is_string()) {
         system_prompt = root["system_prompt"].as_string();
         system_prompt_from_config = true;
@@ -932,6 +981,10 @@ int main(int argc, char** argv) {
   }
   if (serve && (serve_port < 1 || serve_port > 65535)) {
     std::fprintf(stderr, "--serve port must be between 1 and 65535\n");
+    return 2;
+  }
+  if (discovery_port < 0 || discovery_port > 65535) {
+    std::fprintf(stderr, "--discovery-port must be between 0 and 65535\n");
     return 2;
   }
   if (serve_tls) {
@@ -1219,7 +1272,9 @@ int main(int argc, char** argv) {
                 budget);
     ServerOptions server;
     server.port = serve_port;
+    server.https = serve_tls;
     server.https_port = serve_tls ? https_port : 0;
+    server.discovery_port = discovery_port;
     server.token = serve_token;
     server.session_path = session_path;
     server.build_id = PS5H_BUILD_ID;
@@ -1228,6 +1283,9 @@ int main(int argc, char** argv) {
     server.tls_key = tls_key;
     server.plan_mode = plan_mode;
     server.context_chars = context_chars;
+    server.http = http;
+    home_tile.deeplink_port = serve_port;
+    server.home_tile = home_tile;
     return run_server(server, agent, session, options, registry, *activity,
                       runtime_log);
   }

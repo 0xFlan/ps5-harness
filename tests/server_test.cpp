@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -38,6 +39,42 @@ int free_port() {
   const int port = ntohs(address.sin_port);
   ::close(fd);
   return port;
+}
+
+int free_udp_port() {
+  const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+  assert(fd >= 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = 0;
+  assert(::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) == 0);
+  socklen_t length = sizeof address;
+  assert(::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length) == 0);
+  const int port = ntohs(address.sin_port);
+  ::close(fd);
+  return port;
+}
+
+std::string udp_discover(int port) {
+  const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+  assert(fd >= 0);
+  timeval timeout{};
+  timeout.tv_sec = 2;
+  assert(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) == 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(static_cast<unsigned short>(port));
+  const std::string query = "PS5H_DISCOVER_V1\n";
+  assert(::sendto(fd, query.data(), query.size(), 0,
+                  reinterpret_cast<sockaddr*>(&address), sizeof address) ==
+         static_cast<ssize_t>(query.size()));
+  char buffer[4096];
+  const ssize_t got = ::recv(fd, buffer, sizeof buffer, 0);
+  ::close(fd);
+  assert(got > 0);
+  return std::string(buffer, static_cast<std::size_t>(got));
 }
 
 std::string request(int port, const std::string& method, const std::string& path,
@@ -96,7 +133,7 @@ int wait_for_server(int port) {
   return -1;
 }
 
-int child_server(int port, const std::string& token) {
+int child_server(int port, int discovery_port, const std::string& token) {
   std::freopen("/dev/null", "w", stderr);
   ToolRegistry registry;
   ModelConfig config;
@@ -129,6 +166,7 @@ int child_server(int port, const std::string& token) {
   ActivityLog activity;
   ServerOptions server;
   server.port = port;
+  server.discovery_port = discovery_port;
   server.token = token;
   server.build_id = "test";
   server.model = "stub";
@@ -140,11 +178,12 @@ int child_server(int port, const std::string& token) {
 
 int main() {
   const int port = free_port();
+  const int discovery_port = free_udp_port();
   const std::string token = "0123456789abcdef";
   const pid_t child = ::fork();
   assert(child >= 0);
   if (child == 0) {
-    _exit(child_server(port, token));
+    _exit(child_server(port, discovery_port, token));
   }
   assert(wait_for_server(port) == 0);
 
@@ -160,9 +199,40 @@ int main() {
   assert(page_body.find("navigator.getGamepads") != std::string::npos);
   assert(page_body.find("pad.touches") != std::string::npos);
   assert(page_body.find("SpeechRecognition") != std::string::npos);
+  assert(page_body.find("id=\"panel-home\"") != std::string::npos);
+  assert(page_body.find("Home screen app") != std::string::npos);
+  assert(page_body.find("/tile-icon.png") != std::string::npos);
+  assert(page_body.find("id=\"reconnect\"") != std::string::npos);
+  assert(page_body.find("Console connection lost") != std::string::npos);
+  assert(page_body.find("id=\"reconnect-url\"") != std::string::npos);
+
+  const std::string icon = request(port, "GET", "/tile-icon.png", "");
+  assert(icon.find("200 OK") != std::string::npos);
+  assert(icon.find("Content-Type: image/png") != std::string::npos);
+  const std::string icon_body = body_of(icon);
+  assert(icon_body.size() > 1000);
+  assert(static_cast<unsigned char>(icon_body[0]) == 0x89);
+  assert(icon_body.compare(1, 3, "PNG") == 0);
 
   const std::string unauth = request(port, "GET", "/api/state", "");
   assert(unauth.find("401 Unauthorized") != std::string::npos);
+
+  const std::string discovery = request(port, "GET", "/.well-known/ps5h", "");
+  assert(discovery.find("200 OK") != std::string::npos);
+  const std::string discovery_body = body_of(discovery);
+  assert(discovery_body.find(token) == std::string::npos);
+  const Json discovery_json = Json::parse(discovery_body);
+  assert(discovery_json["service"].as_string() == "ps5-harness");
+  assert(discovery_json["protocol"].as_number() == 1);
+  assert(discovery_json["http_port"].as_number() == port);
+  assert(discovery_json["title_id"].as_string() == "HARN00001");
+  assert(discovery_json["addresses"].is_array());
+  assert(discovery_json["urls"].is_array());
+
+  const Json udp_json = Json::parse(udp_discover(discovery_port));
+  assert(udp_json["service"].as_string() == "ps5-harness");
+  assert(udp_json["http_port"].as_number() == port);
+  assert(udp_json["build"].as_string() == "test");
 
   const std::string state = request(port, "GET", "/api/state", token);
   assert(state.find("200 OK") != std::string::npos);
@@ -170,6 +240,17 @@ int main() {
   assert(state_json["mode"].as_string() == "full");
   assert(state_json["tools"].is_array());
   assert(state_json["context"]["limit"].as_number() == 8000);
+  assert(state_json["home_tile"].is_object());
+  assert(state_json["home_tile"]["title_id"].as_string() == "HARN00001");
+  assert(state_json["home_tile"]["state"].as_string() == "pending");
+  assert(state_json["home_tile"]["deeplink"].as_string() ==
+         "http://127.0.0.1:" + std::to_string(port) + "/");
+
+  const std::string health = request(port, "GET", "/api/health", token);
+  assert(health.find("200 OK") != std::string::npos);
+  const Json health_json = Json::parse(body_of(health));
+  assert(health_json["ok"].as_bool());
+  assert(health_json["home_tile"]["title_id"].as_string() == "HARN00001");
 
   const std::string chat = request(
       port, "POST", "/api/chat", token,

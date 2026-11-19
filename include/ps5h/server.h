@@ -5,6 +5,7 @@
 #include <string>
 
 #include "ps5h/agent.h"
+#include "ps5h/home_tile.h"
 #include "ps5h/session.h"
 
 namespace ps5h {
@@ -25,6 +26,10 @@ class ActivityLog {
 struct ServerOptions {
   int port = 8787;
   int https_port = 0;
+  // UDP service discovery. 0 disables it; the HTTP discovery document is
+  // always available at /.well-known/ps5h while the listener is running.
+  int discovery_port = 8799;
+  bool https = false;
   std::string token;
   std::string session_path;
   std::string build_id;
@@ -33,6 +38,10 @@ struct ServerOptions {
   std::string tls_key;
   bool plan_mode = false;
   std::size_t context_chars = 120000;
+  // Used only for the local ShadowMountPlus registration API and the embedded
+  // home-screen tile. It is empty in tests that do not need a network client.
+  HttpFn http;
+  HomeTileConfig home_tile;
 };
 
 // Serves the embedded single-page harness UI and its small JSON API. Blocks

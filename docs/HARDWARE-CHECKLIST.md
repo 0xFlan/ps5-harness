@@ -176,6 +176,16 @@ Run these on the same payload build. They are read-only except where noted.
       `/api/state` returns 401 without the token. (The 2026-11-18
       `0.1.0-c2c533f` smoke passed both, and authenticated state listed all 20
       tools including `fs_search`, `hexdump` and `sysctl`.)
+- [ ] `GET /.well-known/ps5h` returns 200 without a token and exposes only
+      service/build/title/ports/addresses; it contains no token or session.
+- [ ] A UDP `PS5H_DISCOVER_V1` query to 8799 returns the same document, and
+      `tools/ps5h-discover.py` finds that address/port.
+- [ ] Stop and relaunch the payload with the same fixed token, session file and
+      a different `--serve` port; discovery reports the new port, the browser
+      reconnect banner accepts the new address, and the transcript resumes.
+- [ ] After an actual rest-mode wake, record whether the jailbreak survived;
+      re-jailbreak/relaunch as needed and complete the recovery runbook. The
+      payload is not expected to answer while asleep.
 - [ ] A provider key is staged and a full turn runs through the browser UI;
       then restart the payload and confirm the transcript resumes from the
       session file.
