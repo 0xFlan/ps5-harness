@@ -1,5 +1,7 @@
 # ps5-harness
 
+[github.com/0xFlan/ps5-harness](https://github.com/0xFlan/ps5-harness) · MIT
+
 An agent harness for a jailbroken PS5, in the shape of a desktop harness (a
 Hermes-style loop over an OpenAI-compatible model) but with a native console
 tool surface and two ways for other people to extend it.
@@ -968,7 +970,12 @@ Not verified or not built:
   loader; the capability checks use `--call` over the same code paths. That
   also means no model-driven plan, swarm or mission turn has run on the
   console; the host e2e suite covers those loops against a stub.
-- **CI has not executed.** The workflow is committed; no remote run yet.
+- **CI is green on both runners.** The Ubuntu and macOS jobs build, run the
+  complete host suite, execute the browser reconnect test against local
+  HTTP/HTTPS harnesses, and pass the plugin smoke test. CI also covers the
+  Linux mount-enumeration path; the browser test's changed-address leg used a
+  different loopback host and port on Ubuntu, with a port-only fallback on the
+  macOS runner where the alias was unavailable.
 - **No hosted provider has been used.** The round trip is verified against a
   local stub with the real client, policy, dispatch, deadline and redaction; a
   real account, real model and real tool-choice behaviour are untested.

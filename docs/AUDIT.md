@@ -17,7 +17,7 @@ Severity: **S1** = key exfiltration, filesystem escape, or remote code path.
 | A5 | Plugin memory freed by the host | S2 | **Closed** — ABI v2 `emit()` into host memory |
 | A6 | No per-tool deadline | S2 | **Closed** — `run_with_deadline`, `test_tool_deadline` |
 | A7 | Untrusted parsers have no fuzz corpus | S2 | **Closed** — `fuzz/`, `make fuzz-run`, 20k iterations ASan clean |
-| A8 | No repo, license, CI, or TLS policy | S3 | **Partial** — license, `.gitignore`, version, CI workflow committed; CI not yet executed |
+| A8 | No repo, license, CI, or TLS policy | S3 | **Partial** — MIT license, public GitHub repository and green Ubuntu/macOS CI; CA-bundle/clock policy for console TLS remains open |
 
 ---
 
@@ -211,8 +211,10 @@ against the pre-fix code.
 
 ## A8 — Release gaps (S3)
 
-No git repository, no license, no CI, no CA-bundle or clock policy for console
-TLS, no versioning, no changelog. See P0 in `docs/PLAN.md`.
+Repository, MIT license, versioning and CI are now delivered: the public repo is
+`github.com/0xFlan/ps5-harness`, and both Ubuntu and macOS jobs run the full
+test suite. The remaining release gap is the CA-bundle/clock policy for console
+TLS and a changelog. See P0 in `docs/PLAN.md`.
 
 **TLS policy to write down (not just implement):** ship a CA bundle rather than
 trusting a system store that may not exist; check the clock before the first
