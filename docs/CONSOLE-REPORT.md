@@ -950,8 +950,64 @@ returned HTTP 200 with:
 The request used the console key-file path and made no tool calls. This was a
 direct LAN HTTP turn, not a phone/browser-UI session. The temporary key and test
 config were removed from the console after the run; neither is in the release
-bundle. Provider-backed tool-choice, delegation, plan, swarm and mission turns
-remain unverified.
+bundle. The same temporary key was then used for the five capability turns
+below, and was removed again after that run.
+
+## Funded provider capability turns — 2026-11-19
+
+These ran on release build `0.1.0-8c4903b` through the funded Venice endpoint
+`https://api.venice.ai/api/v1` from a LAN host. The test config used
+`model.model = "zai-org-glm-5-1"`, `model.max_tokens = 16384` and
+`max_steps = 12`; `/data/ps5h-secrets/api-key` held the temporary key. The
+short-lived profiles were `probe-scout` (read a named file) and `probe-mapper`
+(list `/data/homebrew`); `/data/homebrew/ps5h-proof-tool.txt` contained exactly
+`TOOL_CHOICE_PROOF_20261119` plus a newline. All temporary console files and
+the host key were deleted afterward.
+
+| Path | Route | Provider result | Steps | Prompt / completion / total | Tool or delegation activity |
+|---|---|---|---:|---:|---|
+| Tool choice | `/api/chat` | exact proof content | 2 | 5,943 / 70 / 6,013 | `tool fs_read {"path":"/data/homebrew/ps5h-proof-tool.txt"}`; tool message `TOOL_CHOICE_PROOF_20261119\n` |
+| Plan | `/api/chat` with `--plan` | exact content plus read-only proposal | 2 | 5,071 / 202 / 5,273 | 12 read-only tools; `tool fs_read`; no write tool loaded |
+| Delegation | `/api/chat` | child answer repeated verbatim | 2 | 6,083 / 105 / 6,188 | `tool delegate` -> `probe-scout`; child 2 steps / 5,915 tokens with `fs_read` |
+| Swarm | `/api/chat` | both lanes reported | 2 | 6,263 / 246 / 6,509 | `tool swarm`, width 2; `probe-scout` 2/5,915 with `fs_read`; `probe-mapper` 2/6,296 with `fs_list` |
+| Multi-step mission | CLI `--mission` | `ok: true` | 2 mission steps | `read`: 2 / 5,945; `follow`: 3 / 10,087 | `fs_read` in `read`; `fs_list` and `fs_read` in `follow`, with the first answer carried into the second task |
+
+Observed final answers:
+
+- **Tool choice:** `The file /data/homebrew/ps5h-proof-tool.txt contains
+  exactly ... TOOL_CHOICE_PROOF_20261119 ...` The assistant history entry had a
+  real `tool_calls` array, and the following tool message was the exact file
+  content.
+- **Plan:** the model called `fs_read` and returned the exact content, then
+  proposed `file_info` as a read-only next check. The plan-mode tool list was
+  `fs_list, fs_read, skill, env_info, fs_tree, file_info, fs_strings,
+  fs_search, hexdump, sysctl, delegate, swarm`; the state log opened with
+  `browser UI listening ... (plan/read-only mode)`.
+- **Delegation:** the parent called `delegate` once with
+  `profile: probe-scout`; the child made its own funded provider turn, called
+  `fs_read`, and returned `TOOL_CHOICE_PROOF_20261119`. The parent answered
+  with that string verbatim.
+- **Swarm:** the parent called `swarm` once with two lanes. Lane 1 returned the
+  exact content; lane 2 returned `ps5h-proof-tool.txt appears ... 27 bytes`.
+  Both child turns logged their own token usage (`5,915` and `6,296`).
+- **Mission:** the CLI logged `mission start name=provider-proof-mission
+  steps=2`, then `mission step=read profile=probe-scout` and `mission
+  step=follow profile=probe-mapper`. The final JSON contained both step
+  results, both `ok: true`, and the exact content in both answers.
+
+**Model selection finding.** The first funded tool-choice attempt used
+`venice-uncensored-1-2`. It completed one provider turn (3,136 prompt / 21
+completion tokens) but returned the intended arguments as assistant text
+(`{"path": "/data/homebrew/ps5h-proof-tool.txt"}`) and no `tool_calls`; no
+tool ran. A direct `/chat/completions` probe reproduced this.
+`zai-org-glm-5-1` emitted a real OpenAI-style `tool_calls` entry for the same
+request, so the capability run uses that model. This is a provider/model
+function-calling difference, not a weakened harness test.
+
+**Mission route limitation.** `/api/chat` cannot run a mission because
+`src/main.cpp` rejects `--serve` together with `--mission` (line 1024). The
+funded mission above therefore used the CLI runner. The mission is real-provider
+and multi-step; a chat mission would require a separate entry point.
 
 ## Still unverified
 
@@ -964,14 +1020,12 @@ remain unverified.
   versions.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
-- A provider-backed turn with tool choice on hardware. The 2026-11-19 smoke
-  test above completed one tool-free `/api/chat` turn; the earlier capability
-  checks used the labeled local stub.
-- A delegated parent→child model turn, a model-driven plan, a swarm with
-  provider-backed lanes, or a multi-step mission with model turns on hardware;
-  the tools, parser, fail-closed runner and one-step failure are
-  console-verified, but only the one tool-free provider chat turn above was
-  made.
+- Provider-backed turns through the on-console browser UI or a phone session.
+  The capability run used the authenticated `/api/chat` endpoint and the CLI
+  mission runner from a LAN host.
+- Re-running the provider capability suite against the final docs-only release
+  commit. The provider evidence above is from `0.1.0-8c4903b`, whose code is
+  unchanged by the documentation commit.
 - The exact CA bundle path and resolver used.
 - Rest mode. The harness is a userland payload and does not execute while the
   console is suspended. The listener-rebind path is covered by a host

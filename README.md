@@ -993,6 +993,60 @@ recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
 ET_EXEC spawn failure and a 64 KiB stack buffer in the digest path), and the
 local-agent run.
 
+### Funded provider capability turns — 2026-11-19
+
+On release build `0.1.0-8c4903b`, all five paths were run against the funded
+Venice endpoint `https://api.venice.ai/api/v1` from a LAN host. The temporary
+key lived at `/data/ps5h-secrets/api-key`; the test config used
+`model.model = "zai-org-glm-5-1"`, `model.max_tokens = 16384` and
+`max_steps = 12`. The short-lived child profiles were `probe-scout` and
+`probe-mapper`; the proof file contained exactly
+`TOOL_CHOICE_PROOF_20261119` plus a newline. The key, config, profiles,
+session files and proof file were deleted after the run.
+
+| Path | Route | Provider result | Steps | Prompt / completion / total | Activity actually exercised |
+|---|---|---|---:|---:|---|
+| Tool choice | `/api/chat` | exact proof file content | 2 | 5,943 / 70 / 6,013 | `tool fs_read {"path":"/data/homebrew/ps5h-proof-tool.txt"}`; tool result `TOOL_CHOICE_PROOF_20261119\n` |
+| Plan | `/api/chat` with `--plan` | exact content plus a read-only proposal | 2 | 5,071 / 202 / 5,273 | 12 read-only tools; `tool fs_read`; no write tool loaded |
+| Delegation | `/api/chat` | delegated answer returned verbatim | 2 | 6,083 / 105 / 6,188 | `tool delegate` -> `probe-scout`, child 2 steps / 5,915 tokens, child `fs_read` |
+| Swarm | `/api/chat` | both lane answers returned | 2 | 6,263 / 246 / 6,509 | `tool swarm`, width 2; `probe-scout` 2 steps / 5,915 tokens with `fs_read`; `probe-mapper` 2 steps / 6,296 tokens with `fs_list` |
+| Multi-step mission | `--mission` CLI | `ok: true`, both steps completed | 2 mission steps | step `read`: 2 / 5,945; step `follow`: 3 / 10,087 | `fs_read` in step 1; `fs_list` and `fs_read` in step 2, with the first answer carried into the second task |
+
+The actual final answers were:
+
+- Tool choice: the model returned the exact file content
+  (`TOOL_CHOICE_PROOF_20261119`) after calling `fs_read`; `/api/history`
+  contained the assistant `tool_calls` entry and the matching tool message.
+- Plan: the model called `fs_read`, returned the exact content, and proposed
+  `file_info` as a read-only next check. It did not call a write tool; the
+  plan-mode tool list was `fs_list, fs_read, skill, env_info, fs_tree,
+  file_info, fs_strings, fs_search, hexdump, sysctl, delegate, swarm`.
+- Delegation: the parent called `delegate` once with `profile: probe-scout`;
+  the child reached the provider, called `fs_read`, and returned
+  `TOOL_CHOICE_PROOF_20261119`. The parent's answer repeated it verbatim.
+- Swarm: the parent called `swarm` once with two lanes. Lane 1 returned the
+  exact content; lane 2 reported that `ps5h-proof-tool.txt` appears in
+  `/data/homebrew` at 27 bytes. The parent reported both results.
+- Mission: the funded CLI run logged `mission start name=provider-proof-mission
+  steps=2`, `mission step=read profile=probe-scout` and `mission step=follow
+  profile=probe-mapper`, then returned `"ok": true` with both step results and
+  their token counts.
+
+**Model selection finding.** The first funded tool-choice attempt used
+`venice-uncensored-1-2`. It completed a provider turn (1 step, 3,136 prompt /
+21 completion tokens) but put the intended arguments in assistant text as
+`{"path": "/data/homebrew/ps5h-proof-tool.txt"}`, with no `tool_calls`; no
+tool ran. A direct `/chat/completions` probe reproduced this,
+while `zai-org-glm-5-1` emitted a real OpenAI-style `tool_calls` entry. The
+capability run therefore uses `zai-org-glm-5-1`; this is a provider model
+capability difference, not a harness downgrade.
+
+**Mission route limitation.** `/api/chat` cannot run a mission: `src/main.cpp`
+explicitly rejects `--serve` together with `--mission` (line 1024), so the
+funded multi-step mission above used the CLI `--mission` runner. The mission
+itself is real-provider and multi-step; exposing it through `/api/chat` would
+need a separate mission entry point.
+
 Not verified or not built:
 
 - **Rest-mode resume is not hardware-tested.** No payload executes while the
@@ -1022,24 +1076,16 @@ Not verified or not built:
 - **Peak memory during a 1 GB transfer is unmeasured.** The path streams in
   fixed chunks and the agent hashed the full 1 GiB file in 8 KiB chunks, but no
   RSS figure was captured on the console.
-- **One hosted model turn has run on hardware.** On 2026-11-19, build
-  `0.1.0-cde3a9c` completed a browser-server `/api/chat` turn through
-  `https://api.venice.ai/api/v1` using `venice-uncensored-1-2` and a temporary
-  console key file. The prompt `Reply with exactly: console model ready`
-  returned `console model ready` in one step (3,110 prompt and 4 completion
-  tokens). The temporary key and test config were removed and are not in this
-  bundle. Provider-backed plan, swarm, mission and delegation turns remain
-  host-stub only.
 - **CI is green on both runners.** The Ubuntu and macOS jobs build, run the
   complete host suite, execute the browser reconnect test against local
   HTTP/HTTPS harnesses, and pass the plugin smoke test. CI also covers the
   Linux mount-enumeration path; the browser test's changed-address leg used a
   different loopback host and port on Ubuntu, with a port-only fallback on the
   macOS runner where the alias was unavailable.
-- **Provider coverage is one tool-free chat turn.** A real Venice account and
-  model completed the `/api/chat` smoke test above; tool-choice, delegated,
-  plan, swarm and mission turns still use the local stub with the real client,
-  policy, dispatch, deadline and redaction.
+- **Provider turns were driven over LAN HTTP, not the on-console browser UI or
+  a phone.** The five capability turns used the authenticated `/api/chat`
+  endpoint or the CLI mission runner from a host; the browser UI's provider
+  path and a phone session were not re-run in this capability test.
 - **Browser input has no hardware controller or real dictation test.** A
   Chromium browser loaded the historical `0.1.0-https` console HTTPS page, and the same test
   exercised the legacy HTTP fallback, the physical keyboard, mouse/OSK,
