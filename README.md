@@ -998,11 +998,12 @@ local-agent run.
 On release build `0.1.0-8c4903b`, all five paths were run against the funded
 Venice endpoint `https://api.venice.ai/api/v1` from a LAN host. The temporary
 key lived at `/data/ps5h-secrets/api-key`; the test config used
-`model.model = "zai-org-glm-5-1"`, `model.max_tokens = 16384` and
-`max_steps = 12`. The short-lived child profiles were `probe-scout` and
-`probe-mapper`; the proof file contained exactly
-`TOOL_CHOICE_PROOF_20261119` plus a newline. The key, config, profiles,
-session files and proof file were deleted after the run.
+`model.model = "zai-org-glm-5-1"` and `max_steps = 12`. The successful
+tool-choice turn used `model.max_tokens = 2048`; after delegation consumed the
+shared pool, the test config was raised to `16384` for the remaining turns. The
+short-lived child profiles were `probe-scout` and `probe-mapper`; the proof file
+contained exactly `TOOL_CHOICE_PROOF_20261119` plus a newline. The key, config,
+profiles, session files and proof file were deleted after the run.
 
 | Path | Route | Provider result | Steps | Prompt / completion / total | Activity actually exercised |
 |---|---|---|---:|---:|---|
@@ -1011,6 +1012,16 @@ session files and proof file were deleted after the run.
 | Delegation | `/api/chat` | delegated answer returned verbatim | 2 | 6,083 / 105 / 6,188 | `tool delegate` -> `probe-scout`, child 2 steps / 5,915 tokens, child `fs_read` |
 | Swarm | `/api/chat` | both lane answers returned | 2 | 6,263 / 246 / 6,509 | `tool swarm`, width 2; `probe-scout` 2 steps / 5,915 tokens with `fs_read`; `probe-mapper` 2 steps / 6,296 tokens with `fs_list` |
 | Multi-step mission | `--mission` CLI | `ok: true`, both steps completed | 2 mission steps | step `read`: 2 / 5,945; step `follow`: 3 / 10,087 | `fs_read` in step 1; `fs_list` and `fs_read` in step 2, with the first answer carried into the second task |
+
+The host sent these exact `/api/chat` messages (the mission used the two tasks
+quoted in its step results):
+
+```text
+Tool choice: Use the fs_read tool on /data/homebrew/ps5h-proof-tool.txt and report the exact file content. Do not answer without calling fs_read.
+Plan: In read-only plan mode, use fs_read on /data/homebrew/ps5h-proof-tool.txt and report its exact content. Then propose one read-only next step. Do not write or modify anything.
+Delegation: Use the delegate tool exactly once. Call delegate with profile "probe-scout" and task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." After it returns, report the delegate answer verbatim. Do not use fs_read yourself.
+Swarm: Use the swarm tool exactly once with two lanes. Lane 1: profile "probe-scout", task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." Lane 2: profile "probe-mapper", task "Use fs_list on /data/homebrew and report whether ps5h-proof-tool.txt appears." Do not inspect the files yourself; report both lane results.
+```
 
 The actual final answers were:
 

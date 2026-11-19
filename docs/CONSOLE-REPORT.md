@@ -957,10 +957,12 @@ below, and was removed again after that run.
 
 These ran on release build `0.1.0-8c4903b` through the funded Venice endpoint
 `https://api.venice.ai/api/v1` from a LAN host. The test config used
-`model.model = "zai-org-glm-5-1"`, `model.max_tokens = 16384` and
-`max_steps = 12`; `/data/ps5h-secrets/api-key` held the temporary key. The
-short-lived profiles were `probe-scout` (read a named file) and `probe-mapper`
-(list `/data/homebrew`); `/data/homebrew/ps5h-proof-tool.txt` contained exactly
+`model.model = "zai-org-glm-5-1"` and `max_steps = 12`; the successful
+tool-choice turn used `model.max_tokens = 2048`, then the shared pool was raised
+to `16384` for the remaining turns. `/data/ps5h-secrets/api-key` held the
+temporary key. The short-lived profiles were `probe-scout` (read a named file)
+and `probe-mapper` (list `/data/homebrew`);
+`/data/homebrew/ps5h-proof-tool.txt` contained exactly
 `TOOL_CHOICE_PROOF_20261119` plus a newline. All temporary console files and
 the host key were deleted afterward.
 
@@ -971,6 +973,17 @@ the host key were deleted afterward.
 | Delegation | `/api/chat` | child answer repeated verbatim | 2 | 6,083 / 105 / 6,188 | `tool delegate` -> `probe-scout`; child 2 steps / 5,915 tokens with `fs_read` |
 | Swarm | `/api/chat` | both lanes reported | 2 | 6,263 / 246 / 6,509 | `tool swarm`, width 2; `probe-scout` 2/5,915 with `fs_read`; `probe-mapper` 2/6,296 with `fs_list` |
 | Multi-step mission | CLI `--mission` | `ok: true` | 2 mission steps | `read`: 2 / 5,945; `follow`: 3 / 10,087 | `fs_read` in `read`; `fs_list` and `fs_read` in `follow`, with the first answer carried into the second task |
+
+Exact `/api/chat` messages sent by the host:
+
+```text
+Tool choice: Use the fs_read tool on /data/homebrew/ps5h-proof-tool.txt and report the exact file content. Do not answer without calling fs_read.
+Plan: In read-only plan mode, use fs_read on /data/homebrew/ps5h-proof-tool.txt and report its exact content. Then propose one read-only next step. Do not write or modify anything.
+Delegation: Use the delegate tool exactly once. Call delegate with profile "probe-scout" and task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." After it returns, report the delegate answer verbatim. Do not use fs_read yourself.
+Swarm: Use the swarm tool exactly once with two lanes. Lane 1: profile "probe-scout", task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." Lane 2: profile "probe-mapper", task "Use fs_list on /data/homebrew and report whether ps5h-proof-tool.txt appears." Do not inspect the files yourself; report both lane results.
+```
+
+The mission tasks are quoted in its step results above.
 
 Observed final answers:
 
