@@ -1022,19 +1022,24 @@ Not verified or not built:
 - **Peak memory during a 1 GB transfer is unmeasured.** The path streams in
   fixed chunks and the agent hashed the full 1 GiB file in 8 KiB chunks, but no
   RSS figure was captured on the console.
-- **No model turn has run on hardware.** No provider key was available to the
-  loader; the capability checks use `--call` over the same code paths. That
-  also means no model-driven plan, swarm or mission turn has run on the
-  console; the host e2e suite covers those loops against a stub.
+- **One hosted model turn has run on hardware.** On 2026-11-19, build
+  `0.1.0-cde3a9c` completed a browser-server `/api/chat` turn through
+  `https://api.venice.ai/api/v1` using `venice-uncensored-1-2` and a temporary
+  console key file. The prompt `Reply with exactly: console model ready`
+  returned `console model ready` in one step (3,110 prompt and 4 completion
+  tokens). The temporary key and test config were removed and are not in this
+  bundle. Provider-backed plan, swarm, mission and delegation turns remain
+  host-stub only.
 - **CI is green on both runners.** The Ubuntu and macOS jobs build, run the
   complete host suite, execute the browser reconnect test against local
   HTTP/HTTPS harnesses, and pass the plugin smoke test. CI also covers the
   Linux mount-enumeration path; the browser test's changed-address leg used a
   different loopback host and port on Ubuntu, with a port-only fallback on the
   macOS runner where the alias was unavailable.
-- **No hosted provider has been used.** The round trip is verified against a
-  local stub with the real client, policy, dispatch, deadline and redaction; a
-  real account, real model and real tool-choice behaviour are untested.
+- **Provider coverage is one tool-free chat turn.** A real Venice account and
+  model completed the `/api/chat` smoke test above; tool-choice, delegated,
+  plan, swarm and mission turns still use the local stub with the real client,
+  policy, dispatch, deadline and redaction.
 - **Browser input has no hardware controller or real dictation test.** A
   Chromium browser loaded the historical `0.1.0-https` console HTTPS page, and the same test
   exercised the legacy HTTP fallback, the physical keyboard, mouse/OSK,
@@ -1043,9 +1048,11 @@ Not verified or not built:
   a normal browser profile, so the documented trust step is not itself tested.
   No controller was physically paired to the test browser, no real microphone
   recognition ran, and console-paired peripherals are not forwarded. Session-file
-  persistence on the console is verified (12 messages after restart); no provider
-  key was staged for a browser chat turn. There is still no native on-console
-  window; `icon0.png` and the title metadata are the shell-facing surface.
+  persistence on the console is verified (12 messages after restart). The
+  provider smoke test above used the console `/api/chat` endpoint from a LAN
+  host, not the on-console browser UI or a phone. There is still no native
+  on-console window; `icon0.png` and the title metadata are the shell-facing
+  surface.
 - **No elevation helper**, so writes reach only what the process can already
   open.
 

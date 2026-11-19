@@ -934,6 +934,25 @@ recognition result; it proved the page’s result-to-caret insertion path.
 - Deployed-origin Chromium test — secure context, prompt, mocked dictation and
   HTTP fallback as above, with **no page errors**.
 
+## Funded provider smoke test — 2026-11-19
+
+On the release build `0.1.0-cde3a9c`, a temporary Venice API key was staged at
+`/data/ps5h-secrets/api-key` and `/data/ps5h-test-config.json` set
+`model.api_key_file` to that path, `model.base_url` to
+`https://api.venice.ai/api/v1`, and `model.model` to
+`venice-uncensored-1-2`. The console's authenticated `/api/chat` endpoint
+returned HTTP 200 with:
+
+```json
+{"answer": "console model ready", "ok": true, "usage": {"completion_tokens": 4, "prompt_tokens": 3110, "steps": 1, "total_tokens": 3114}}
+```
+
+The request used the console key-file path and made no tool calls. This was a
+direct LAN HTTP turn, not a phone/browser-UI session. The temporary key and test
+config were removed from the console after the run; neither is in the release
+bundle. Provider-backed tool-choice, delegation, plan, swarm and mission turns
+remain unverified.
+
 ## Still unverified
 
 - Tapping or launching the installed HARN00001 home-row tile. The tile folder is
@@ -945,12 +964,14 @@ recognition result; it proved the page’s result-to-caret insertion path.
   versions.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
-- A provider-backed model turn on hardware; the final console turn used the
-  labeled local stub because no provider key was available to the loader.
+- A provider-backed turn with tool choice on hardware. The 2026-11-19 smoke
+  test above completed one tool-free `/api/chat` turn; the earlier capability
+  checks used the labeled local stub.
 - A delegated parent→child model turn, a model-driven plan, a swarm with
   provider-backed lanes, or a multi-step mission with model turns on hardware;
   the tools, parser, fail-closed runner and one-step failure are
-  console-verified, but no provider call was made.
+  console-verified, but only the one tool-free provider chat turn above was
+  made.
 - The exact CA bundle path and resolver used.
 - Rest mode. The harness is a userland payload and does not execute while the
   console is suspended. The listener-rebind path is covered by a host
