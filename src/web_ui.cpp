@@ -536,7 +536,7 @@ h1{font-size:19px;letter-spacing:-.025em;margin-top:5px;font-weight:650}
     <button id="reconnect-now" type="button">Retry now</button>
     <button id="reconnect-use" type="button">Use address</button>
   </div>
-  <p class="reconnect-help">If the console was restarted, wake it, re-run the jailbreak and launch the harness payload again, then retry. Use the address shown by discovery if the IP or port changed.</p>
+  <p class="reconnect-help">If the console went to rest mode, wake it and retry; a surviving harness rebinds automatically. If it was restarted or the jailbreak was lost, re-run the jailbreak and launch the harness payload again, then retry. Use the address shown by discovery if the IP or port changed.</p>
 </div>
 <div id="app">
   <aside class="sidebar">

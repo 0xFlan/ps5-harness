@@ -9,16 +9,22 @@ loses its jailbreak:
 - the console gets a different LAN address or the harness is started on a
   different port.
 
-The harness is a userland payload. This change does not make it a background
-service and does not make it survive rest mode. It makes the recovery path
-discoverable, repeatable and resumable once the payload is running again.
+The harness is a userland payload. It is not a background service, and it does
+not execute while the console is asleep. Recent PS5 homebrew reports show that
+rest mode usually **freezes** a payload rather than killing it, but the system
+closes its listening sockets and drops the LAN interface. The serving loop now
+detects the resume and rebinds HTTP, HTTPS and UDP discovery. This is entirely
+in-process: no separate payload or external component is required. It makes
+the suspend case recoverable without a relaunch; if the process or jailbreak is
+actually gone, the manual path below still applies.
 
 ## What survives what
 
 | Event | Harness process | Session file | Fixed bearer token | Home tile folder | LAN address |
 |---|---|---|---|---|---|
 | Wi-Fi/Ethernet drop, then returns | Keeps running | Keeps | Keeps | Keeps | Same or new DHCP lease |
-| Console rest mode | **Gone** | Keeps | Keeps if `--serve-token` was fixed | Keeps | May change after wake |
+| Console rest mode (process suspended) | Usually survives; listeners are rebound | Keeps | Keeps if `--serve-token` was fixed | Keeps | May change after wake |
+| Console rest mode (process terminated) | **Gone** | Keeps | Keeps if `--serve-token` was fixed | Keeps | May change after wake |
 | Restart / re-jailbreak | **Gone** | Keeps | Keeps if `--serve-token` was fixed | Keeps; startup re-registers it | May change |
 | New `--serve` port | Old process unchanged | Keeps | Keeps | Re-registered with the new deeplink port | Same console |
 
@@ -50,27 +56,41 @@ banner.
 
 ## 2. The console went into rest mode
 
-**The payload is not running while the console is asleep, and this repository
-does not install a wake source, scheduler or background service.** A rest-mode
-wake needs a human at the console.
+**No work executes while the console is asleep, and this repository does not
+install a wake source, scheduler or background service.** A rest-mode wake
+needs a human at the console or a working Remote Play wake.
 
-A wake can also leave the jailbreak in a state where the exploit must be run
-again. That is outside the harness; follow the exploit loader's recovery steps
-for the firmware in use. The harness cannot repair the jailbreak.
+On current PS5 homebrew reports, the payload process is usually frozen with its
+memory intact; the system closes its listening sockets and takes the network
+down. The harness watches `SIGCONT`, a wall-clock jump of at least five seconds,
+and the non-loopback IPv4 address set. While the network is unavailable it
+keeps the existing listeners in the poll set, so any still-valid HTTP, HTTPS or
+UDP discovery request is answered promptly. Once the network is ready it
+closes and rebinds the same ports. Network checks are capped at one second, and
+bind failures back off at 2s, 4s, 8s, 16s and a 30s cap; a second wake resets
+that wait. `/api/health` reports a new `listener_generation` after a successful
+rebind.
 
-After wake and any required re-jailbreak:
+After wake:
 
-1. Confirm the console is awake and on the expected network.
-2. Start the payload again with the same launch configuration, session file and
-   fixed token. Use the same command as the last successful launch; the only
-   thing that should change is the console address if DHCP assigned one.
-3. Run discovery (below) or open the console's printed URL.
-4. Open the workspace and confirm the saved transcript is present. The home
+1. Confirm the console is awake and on the expected network. Give it a few
+   seconds after the network returns.
+2. Try the existing page. Its normal retry should reconnect on the same origin.
+   If DHCP changed the console's address, use the reconnect banner's address
+   field or run discovery below.
+3. If the API responds with the saved transcript, the process survived; do not
+   relaunch it just because the page showed a temporary lost-connection banner.
+4. If the listener does not return, the process may have been terminated or the
+   jailbreak may have been lost. Re-run the exploit as required and start the
+   payload with the same launch configuration, session file and fixed token.
+5. Open the workspace and confirm the saved transcript is present. The home
    tile is re-registered during startup when `--home-tile-autostart` is set and
    no removal marker is present.
 
-There is no wake-on-LAN. Queue jobs on an always-on host and run them after the
-console is awake and the payload is running again.
+`elfldr` and the file manager are separate processes and may still be
+unreachable after wake even when the harness survived. There is no wake-on-LAN
+in the harness. Queue jobs on an always-on host and run them after the console
+is awake and the payload is running again.
 
 ## 3. Restart or re-jailbreak
 
@@ -202,7 +222,9 @@ answers with the current token, in that order.
 
 ## 6. What this does not solve
 
-- It does not keep the payload alive in rest mode.
+- It does not execute work while the console is asleep.
+- It does not keep a terminated payload alive, auto-start it, or repair a lost
+  jailbreak; it only rebinds listeners when the suspended process survives.
 - It does not wake the console or re-run the exploit automatically.
 - It does not start the payload from the home tile; the tile opens the
   configured web-app shell, while the harness listener still needs its launch.
@@ -222,6 +244,14 @@ banner to a changed origin/port with the token carried, verifies the transcript
 reloads, and verifies a stale token produces the rejected-token login state. It
 writes screenshots and `report.json` under `build/reconnect-evidence/`.
 
-This is a host test; it does not exercise rest mode, the console loader, or the
-real console's network interface. Re-test the full rest-mode and re-jailbreak
-path on hardware before treating it as a customer-verified procedure.
+`server_test` simulates the suspend/resume lifecycle by sending `SIGCONT`
+while a test hook holds the network down. It asserts that HTTP and UDP requests
+are still answered by the old listeners during the wait, then restores the
+network, requires the listener generation to advance and the transcript to
+remain, and repeats the wake to prove a second resume recovers. `make
+reconnect-test` also sends `SIGCONT` to its HTTPS harness and waits for a new
+listener generation before driving the page, which exercises the TLS rebind
+path. This does not reproduce the system-level socket closure of a real rest
+cycle, and it does not exercise the console loader, jailbreak, or the real
+network interface. A hardware rest-mode run is still required before treating
+automatic resume as customer-verified.

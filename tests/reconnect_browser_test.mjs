@@ -149,6 +149,31 @@ async function stopChild(child) {
   await sleep(120);
 }
 
+function getJson(url, token, timeout = 1200) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const client = parsed.protocol === 'https:' ? https : http;
+    const request = client.get(parsed, {
+      rejectUnauthorized: false,
+      headers: { Authorization: 'Bearer ' + token }
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => {
+        if (response.statusCode !== 200) {
+          reject(new Error('HTTP ' + response.statusCode));
+          return;
+        }
+        try { resolve(JSON.parse(body)); }
+        catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(timeout, () => request.destroy(new Error('request timed out')));
+    request.on('error', reject);
+  });
+}
+
 function startHarness({ label, config, cert, key, httpPort, httpsPort,
                         token, session, log }) {
   const args = [
@@ -179,6 +204,9 @@ function startHarness({ label, config, cert, key, httpPort, httpsPort,
         throw new Error(label + ' did not start: ' + error.message + '\n' +
                         tail(log));
       }
+    },
+    async health() {
+      return getJson('https://' + HOST_A + ':' + httpsPort + '/api/health', token);
     },
     async stop() { await stopChild(child); }
   };
@@ -367,6 +395,25 @@ async function main() {
       httpPort: httpA, httpsPort: httpsA, token: TOKEN_A, session: sessionA,
       log: logA });
     await serverA.ready();
+
+    // Same-process resume: SIGCONT must make the server close and rebind both
+    // listeners, including the TLS one. The page test below then covers the
+    // browser recovering from the brief outage on the same origin.
+    const generationBeforeResume = (await serverA.health()).listener_generation;
+    assert.equal(process.kill(serverA.child.pid, 'SIGCONT'), true);
+    const resumed = await waitFor('TLS listener after SIGCONT', async () => {
+      try {
+        const health = await serverA.health();
+        return health.listener_generation > generationBeforeResume ? health : false;
+      } catch (_) {
+        return false;
+      }
+    }, 15000);
+    assert.ok(resumed.listener_generation > generationBeforeResume);
+    report.steps.push({ name: 'tls-listener-resumed',
+                        generation: resumed.listener_generation });
+    console.log('reconnect_browser_test: tls-listener-resumed (generation ' +
+                resumed.listener_generation + ')');
 
     chromeProfile = mkdtempSync(join(tmpdir(), 'reconnect-chrome-'));
     let chromeStderr = '';

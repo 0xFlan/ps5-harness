@@ -280,10 +280,14 @@ running primary listener publishes `/.well-known/ps5h` and answers UDP
 discovery on 8799; `tools/ps5h-discover.py` finds the new origin; and
 `--serve-token` plus `--session` make a relaunch reuse the token and transcript.
 The host tests cover the discovery document and UDP responder; a loopback smoke
-run exercised the helper over UDP and TCP. It has not been exercised on the
-console yet, and it does not change the fact that a rest-mode/restart kills the
-userland payload. The support procedure is
-[`RECOVERY.md`](RECOVERY.md).
+run exercised the helper over UDP and TCP. The listener supervisor also rebinds
+HTTP, HTTPS and discovery after a suspended process resumes. The host coverage
+is a `SIGCONT` test with a network gate that proves requests keep working while
+the network is unavailable, then verifies the rebind and a second wake; the
+TLS rebind is covered by `make reconnect-test`. This has not been exercised
+through an actual console rest-mode wake. A firmware that terminates the
+payload or resets the jailbreak still requires a manual relaunch. The support
+procedure is [`RECOVERY.md`](RECOVERY.md).
 
 Completion: a ten-minute session with no terminal open — browse a catalogue,
 download something, see progress, cancel one, find the file afterwards — on the

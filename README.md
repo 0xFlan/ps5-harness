@@ -478,13 +478,28 @@ setup; a token generated because the flag was omitted changes on every launch.
 HTTP and HTTPS harnesses. It stops and restarts a harness, changes the origin
 and port while preserving the token, checks that the transcript reloads, and
 checks that a stale token produces the login/rejected-token state instead of a
-dead-console state. It does not make rest mode recoverable.
+dead-console state.
 
-This does **not** make the payload survive rest mode. Rest mode stops the
-userland process; after wake, re-run the exploit if required and launch the
-payload again. The saved session resumes and the home tile is re-registered on
-that launch when auto-install is enabled and the tile was not removed. The
-harness has no wake-on-LAN or background-service path.
+`server_test` also simulates resume: it sends `SIGCONT` to the serving process
+while a test hook holds the network down, asserts that HTTP and UDP requests are
+still answered by the existing listeners during the wait, then restores the
+network and asserts that the listeners rebind with a new `listener_generation`
+and the in-memory transcript stays intact. It repeats the wake to prove a
+second resume can recover after a rebind blocked by the unavailable network.
+This is a host simulation, not a rest-mode hardware test. See the rest-mode
+section below for the remaining limits.
+
+On firmware where rest mode **suspends** the userland process, the process and
+the saved session survive, but the system closes its listening sockets. The
+serving loop detects `SIGCONT`, a wall-clock jump of at least five seconds, or
+a change in the non-loopback IPv4 address set; it keeps existing
+listeners in the poll set while the network is unavailable (so a still-valid
+listener continues to serve), then rebinds HTTP, HTTPS and UDP discovery once
+the network is ready. The page's normal retry then reconnects, or
+the user uses the address field if DHCP changed the console's IP. If rest mode
+instead **terminates** the process or resets the jailbreak, the payload still
+has to be relaunched manually; the harness has no wake-on-LAN, scheduler or
+background-service path.
 
 ## Plan mode, swarms and missions
 
@@ -690,8 +705,9 @@ PacBrew pins, artifact hashes, the shims and the console commands.
 
 ### Rest mode
 
-**No. The harness cannot run in rest mode, and this build has no path to make it
-do so.** It is a userland payload, not a background service:
+**Yes for a suspended userland process, no for a terminated process or a reset
+jailbreak.** The harness is still an elfldr payload, not a background service,
+but the serving process now has a resume path:
 
 - `platform/ps5/Makefile` builds `harness.elf` as an ET_DYN payload loadable by
   elfldr on port 9021; arguments still come from a `file:` URI.
@@ -699,26 +715,38 @@ do so.** It is a userland payload, not a background service:
   normal prompt and `--plan` all return. Only `--serve` stays alive, and only
   because the user explicitly launched a LAN listener; it is not started by the
   title path or by rest mode.
-- The listener is `src/server.cpp` (`bind`, `listen`, `accept`), disabled by
-  default; every `/api/*` call needs the bearer token, while the page, tile icon
+- On current PS5 homebrew reports, rest mode freezes a userland payload rather
+  than killing it. The memory and open files survive, but the system closes the
+  listening sockets and the LAN interface disappears and returns. A new IP is
+  possible. The process is not executing while the console is asleep.
+- `src/server.cpp` uses one `poll()`-driven listener loop for HTTP, HTTPS and UDP
+  discovery. It detects `SIGCONT`, a wall-clock jump of at least five seconds,
+  or a change in the non-loopback IPv4 address set. It keeps the existing
+  sockets in the poll set while the network recovers, then closes and binds the
+  same ports again once the network is ready. Network checks are bounded at one
+  second; bind failures back off at 2s, 4s, 8s, 16s and a 30s cap. A second
+  resume resets that wait, so a failed first attempt is not permanent.
+  `/api/health` exposes `listener_generation` so a successful resume is
+  observable. The browser's existing retry/banner path reconnects on the same
+  origin, or accepts a new address after DHCP changes.
+- Every `/api/*` call still needs the bearer token, while the page, tile icon
   and `/.well-known/ps5h` discovery document are public read-only surfaces.
   `src/http.cpp` is still the outbound libcurl client. `docs/SECURITY.md`
   records the listener rule and the token boundary.
 - Ports 9021 (elfldr) and 8888 (web file manager) are separate userland
-  processes, not servers started implicitly by the harness
-  (`docs/CONSOLE-REPORT.md`, Environment table). Suspend stops the console's userland, so those
-  processes and the harness are not there to answer. Nothing in this repo asks
-  the OS to keep them alive.
+  processes. They may also lose their listening sockets in rest mode; the
+  harness cannot repair them. In particular, elfldr may be unreachable after
+  wake even if the harness process survived.
 
-A suspended console therefore has no `harness` process to receive a tool call,
-load a skill, edit a file or make a model turn. The only workable path for work
-while the console sleeps is to queue jobs on an always-on host and, after the
-console wakes, launch `harness.elf` and run the queue against it. There is no
-wake-on-LAN, scheduler or background-service path here, and installing
-`eboot.bin` as a title does not add one. This is also why verification kept the
-console awake; waking it needs a human at the machine. The reconnect banner and
-discovery document described above make the post-wake relaunch easier to find
-and resume; they do not keep the process alive or start it automatically. Use
+No tool call, skill, edit or model turn can execute while the console is asleep.
+If rest mode kills the harness or resets the jailbreak, re-run the exploit if
+required and launch `harness.elf` again; the saved session resumes and the home
+tile is re-registered on that launch when auto-install is enabled and the tile
+was not removed. There is no wake-on-LAN, scheduler or background-service path
+here, and installing `eboot.bin` as a title does not add one. **No separate
+payload is needed for the suspend case.** A separate resident payload or
+kernel/loader hook would only be relevant if the process is actually
+terminated; it is not implemented in this repository. Use
 [`docs/RECOVERY.md`](docs/RECOVERY.md) for the wake, re-jailbreak and relaunch
 sequence.
 
@@ -795,10 +823,12 @@ Verified on the host:
   routes, a full stub-backed turn, transcript persistence across restart and
   context compaction are covered by host tests and a live loopback smoke test
 - **Connection recovery and discovery**: `server_test` checks the public
-  `/.well-known/ps5h` document and the UDP responder without a token, and a
-  loopback smoke run exercised `tools/ps5h-discover.py` through both UDP and
-  the TCP fallback. The reconnect banner and its address hand-off are in the
-  served page; they have not yet been exercised in a real browser.
+  `/.well-known/ps5h` document, the UDP responder without a token, a `SIGCONT`
+  resume with the network gated down (HTTP/UDP still answer while waiting),
+  then the rebind and a second resume; a loopback smoke run exercised
+  `tools/ps5h-discover.py` through both UDP and the TCP fallback. The HTTPS
+  listener resume and the reconnect banner/address hand-off are exercised in
+  real headless Chrome by `make reconnect-test`.
 - **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
   disk, checks the fSELF magic and the agent ELF header, and passes on the
   package above
@@ -944,9 +974,14 @@ local-agent run.
 
 Not verified or not built:
 
-- **Rest mode is unsupported.** No payload runs while the console is in rest
-  mode; this was not changed by this build, and it was not tested by suspending
-  the console.
+- **Rest-mode resume is not hardware-tested.** No payload executes while the
+  console is asleep. The new listener supervisor keeps working listeners while
+  the network is down, survives a frozen process and rebinds after `SIGCONT`,
+  a wall-clock jump of at least five seconds, or a change in the non-loopback
+  IPv4 address set; this was tested with `SIGCONT` and a gated network on the
+  host, not by suspending
+  this console. If the firmware terminates the process or resets the jailbreak,
+  manual re-jailbreak and relaunch are still required.
 - **The recovery path is not console-tested in this change.** Discovery,
   fixed-token/session relaunch, a changed `--serve` port and the home-tile
   rewrite still need a hardware run using [`docs/RECOVERY.md`](docs/RECOVERY.md).

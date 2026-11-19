@@ -99,10 +99,18 @@ build/power_tools_test.o: tests/power_tools_test.cpp | build
 build/power_tools_test: $(LIB_OBJ) build/power_tools_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+# server_test needs the network-gate test hook in server.cpp. Compile a
+# separate test object so the production listener remains free of test code.
+SERVER_TEST_DEFS := -DPS5H_TEST_HOOKS
+LIB_OBJ_NO_SERVER := $(filter-out build/server.o,$(LIB_OBJ))
+
 build/server_test.o: tests/server_test.cpp | build
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build/server_test: $(LIB_OBJ) build/server_test.o
+build/server_test_server.o: src/server.cpp | build
+	$(CXX) $(CXXFLAGS) $(SERVER_TEST_DEFS) -c $< -o $@
+
+build/server_test: $(LIB_OBJ_NO_SERVER) build/server_test.o build/server_test_server.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
 build/home_tile_test.o: tests/home_tile_test.cpp | build
