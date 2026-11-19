@@ -206,8 +206,10 @@ them.
 ### What you need
 
 1. A jailbroken PS5 with `elfldr` listening on port 9021.
-2. The harness release bundle. Build it with `make release`, or use the
-   `-local.zip` kit described below. The bundle contains `PHAR00001/`.
+2. The harness release bundle. Download it from the
+   [releases page](https://github.com/0xFlan/ps5-harness/releases), build it
+   with `make release`, or use the `-local.zip` kit described below. The bundle
+   contains `PHAR00001/`.
 3. One model file: `Qwen3.5-0.8B-Q4_K_M.gguf` (about 532 MB).
 
 Download the model directly:
