@@ -51,8 +51,9 @@ the LLVM C++ runtime (`libc++`, `libc++abi` and `libunwind`).
 - A PS5 that is already on a jailbroken firmware with a working loader.
 - The console and the browser on the same local network.
 - A model provider URL and an API key that you control. The key is read from
-  the environment named by `api_key_env` (`PS5H_API_KEY` by default); it is
-  never stored in the config file or this bundle.
+  the environment named by `api_key_env` (`PS5H_API_KEY` by default), or from
+  a one-line file named by `model.api_key_file` / `--api-key-file`; the key
+  itself is never stored in the config file or this bundle.
 - No account with the project and no server started by the project.
 
 Do **not** expose the harness listener directly to the internet. It is a
@@ -96,6 +97,11 @@ Open:
 http://<console-ip>:8787/?token=<your-long-token>
 ```
 
+`8787` is an example free port. If it is already occupied (for example by a
+previous test listener), choose another free port and use that same number in
+`--serve`, the browser URL and the discovery helper's `--ports` argument; the
+discovery document and helper report the actual listener port.
+
 If the console address or port changes, use the discovery helper from the
 bundle root. Put the same token in `PS5H_TOKEN` so the printed URL is usable:
 
@@ -117,8 +123,12 @@ The harness sends model requests directly to the provider at
 `model.base_url`. Set the key in `PS5H_API_KEY` in the environment of the
 process that launches the payload; do not paste it into a config file, a shell
 transcript or a support message. If your loader cannot pass environment
-variables, the page and the local tools still work, but model chat needs a
-launch path that can set the variable.
+variables, stage a one-line key file at `/data/ps5h-secrets/api-key` and add
+`"api_key_file": "/data/ps5h-secrets/api-key"` to the model block, or pass
+`--api-key-file /data/ps5h-secrets/api-key`. The harness reads it at startup and
+redacts it from logs; the `ps5h-secrets` directory is denied to the agent's
+file tools by the existing secret-name policy. The page and local tools still
+work without a key; model chat is the part that needs one.
 
 The production URL policy deliberately rejects cleartext and private/loopback
 addresses, including a model server on the console's own LAN. That is an SSRF
@@ -140,6 +150,10 @@ The harness is not a background service. It does not execute while the console
 is asleep and it does not keep a terminated process alive. Suspended listeners
 rebind after wake; a terminated payload or lost jailbreak needs a manual
 relaunch. See `docs/RECOVERY.md` for the full sequence.
+
+For a listener you started only for testing, `POST /api/shutdown` with the
+bearer token stops the harness cleanly; without the token it returns 401. This
+stops the payload, not the console.
 
 No project server is contacted during startup, discovery, or browser use. The
 only outbound traffic is to the model provider and to endpoints you explicitly

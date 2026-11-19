@@ -327,6 +327,10 @@ int main() {
   const Json history_json = Json::parse(body_of(history));
   assert(history_json["messages"].size() == 3);  // system, user, assistant
 
+  const std::string unauth_shutdown =
+      request(port, "POST", "/api/shutdown", "");
+  assert(unauth_shutdown.find("401 Unauthorized") != std::string::npos);
+
   // Rest mode is a freeze, not a clean close. SIGCONT is one resume signal a
   // PS5 payload may receive; the server also watches the wall clock and the
   // non-loopback IPv4 address set. Hold the simulated network down across the
@@ -377,9 +381,19 @@ int main() {
       wait_for_generation(port, token, generation_after_first);
   assert(generation_after_second > generation_after_first);
 
-  ::kill(child, SIGTERM);
+  const std::string shutdown = request(port, "POST", "/api/shutdown", token);
+  assert(shutdown.find("200 OK") != std::string::npos);
   int status = 0;
-  ::waitpid(child, &status, 0);
+  bool exited = false;
+  for (int i = 0; i < 50; ++i) {
+    const pid_t result = ::waitpid(child, &status, WNOHANG);
+    if (result == child) {
+      exited = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  assert(exited);
   std::printf("server_test: ok (port %d)\n", port);
   return 0;
 }

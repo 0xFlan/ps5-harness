@@ -529,6 +529,52 @@ void test_local_agent_profile() {
   assert(missing.output.find("cannot load agent") != std::string::npos);
 }
 
+// A console loader may not be able to set environment variables. The CLI must
+// accept a key file without putting the secret in the config or its output.
+void test_api_key_file() {
+  const std::string directory = make_temp_dir();
+  const std::string key = "sk-file-secret-value-123456";
+  ::unsetenv("PS5H_E2E_FILE_KEY");
+  const std::string key_path = directory + "/api-key";
+  write_text(key_path, "  " + key + "\n");
+
+  Json model = Json::object();
+  model["base_url"] = "https://api.openai.com/v1";
+  model["model"] = "stub-model";
+  model["api_key_env"] = "PS5H_E2E_FILE_KEY";
+  model["api_key_file"] = key_path;
+  Json roots = Json::array();
+  roots.push_back(directory);
+  Json config = Json::object();
+  config["model"] = model;
+  config["endpoints_dir"] = "";
+  config["plugins_dir"] = "";
+  config["max_steps"] = 2;
+  config["allowed_roots"] = roots;
+  config["read_roots"] = roots;
+  config["secret_env"] = Json::array();
+  const std::string config_path = directory + "/config.json";
+  write_text(config_path, config.dump(2));
+
+  StubProvider stub({Reply{final_reply("key file works")}});
+  const std::string command =
+      "./build/harness_e2e --config " + quote(config_path) +
+      " --base-url " + quote(stub.base_url()) +
+      " --test-allow-loopback-cleartext " + quote("say hello");
+  const CommandResult result = run_command(command);
+  if (result.exit_code != 0) {
+    std::fprintf(stderr, "key-file CLI exited %d:\n%s\n", result.exit_code,
+                 result.output.c_str());
+  }
+  assert(result.exit_code == 0);
+  assert(result.output.find("key file works") != std::string::npos);
+  assert(result.output.find(key) == std::string::npos);
+  assert(stub.wait_for_requests(1, 8000));
+  const Recorded first = stub.request(0);
+  assert(first.headers.count("authorization") == 1);
+  assert(first.headers.at("authorization") == "Bearer " + key);
+}
+
 std::string write_delegation_config(const std::string& directory, int max_steps,
                                     int max_tokens, int max_depth) {
   Json model = Json::object();
@@ -1247,6 +1293,8 @@ int main() {
   test_cli_round_trip();
   std::printf("local agent profile...\n");
   test_local_agent_profile();
+  std::printf("api key file...\n");
+  test_api_key_file();
   std::printf("skill and edit tools...\n");
   test_skill_and_edit_tools();
   std::printf("delegation round trip...\n");

@@ -86,6 +86,7 @@ struct Shared {
   std::atomic<int> http_port{0};
   std::atomic<int> https_port{0};
   std::atomic<unsigned long long> listener_generation{0};
+  std::atomic<bool> shutdown_requested{false};
   long long started_at = 0;
 };
 
@@ -547,6 +548,19 @@ void handle_connection(int fd, Shared* shared) {
     body["ok"] = false;
     body["error"] = "unauthorized";
     respond_json(fd, 401, body);
+    ::close(fd);
+    return;
+  }
+
+  if (path == "/api/shutdown") {
+    if (request.method != "POST") {
+      respond_json(fd, 405, Json::object());
+    } else {
+      shared->shutdown_requested.store(true);
+      Json body = Json::object();
+      body["ok"] = true;
+      respond_json(fd, 200, body);
+    }
     ::close(fd);
     return;
   }
@@ -1057,6 +1071,10 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   };
 
   while (true) {
+    if (shared->shutdown_requested.load()) {
+      shared->log("serve: shutdown requested");
+      break;
+    }
     const auto loop_now = std::chrono::steady_clock::now();
     const std::time_t wall_clock = std::time(nullptr);
     const bool time_jumped = wall_clock - last_wall_clock >= 5;
@@ -1154,6 +1172,14 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
       }
     }
   }
+
+  close_listener(&listener);
+  close_listener(&tls_listener);
+  close_listener(&discovery_fd);
+  if (tls_context != nullptr) {
+    SSL_CTX_free(tls_context);
+  }
+  return 0;
 }
 
 }  // namespace ps5h

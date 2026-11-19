@@ -14,6 +14,9 @@ struct ModelConfig {
   std::string base_url = "https://api.openai.com/v1";
   std::string model = "gpt-4o-mini";
   std::string api_key_env = "PS5H_API_KEY";
+  // Optional console-friendly fallback for a loader that cannot set env vars.
+  // The key itself is never stored in the config; this is only a path.
+  std::string api_key_file;
   double temperature = 0.2;
   int max_tokens = 0;
 };

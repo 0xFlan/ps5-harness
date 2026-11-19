@@ -65,6 +65,7 @@ served without it so it can render the login prompt):
 ```bash
 ./build/harness --config config.example.json --serve 8787
 # open http://<console-or-host-ip>:8787/?token=<printed-token>
+# 8787 is an example; use the same free port in --serve and the URL.
 ```
 
 `--serve-token <16+ chars>` fixes the token, `--session <path>` overrides the
@@ -94,15 +95,20 @@ needs the pinned payload SDK/PacBrew and LLVM toolchain described in
 [`platform/ps5/BUILD.md`](platform/ps5/BUILD.md). See
 [`docs/RELEASE.md`](docs/RELEASE.md).
 
-Talk to a model (key comes from the environment, never the config file):
+Talk to a model (the key comes from the environment or a one-line key file;
+the config contains only the environment name or file path, never the secret):
 
 ```bash
 export PS5H_API_KEY=...
 ./build/harness --config config.example.json "what is in examples/endpoints?"
+
+# Or, when the launcher cannot set environment variables:
+./build/harness --config config.example.json \
+  --api-key-file /data/ps5h-secrets/api-key "what is in examples/endpoints?"
 ```
 
-Explicit flags win over the config file (`--base-url` and `--model` are not
-overwritten by `model.*` in the config).
+Explicit flags win over the config file (`--base-url`, `--model` and
+`--api-key-file` are not overwritten by `model.*` in the config).
 
 Test one tool without spending tokens:
 

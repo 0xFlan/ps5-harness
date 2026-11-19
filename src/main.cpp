@@ -581,6 +581,7 @@ void print_usage() {
       "  --prompt <text>      Prompt to run (alternative to a positional prompt)\n"
       "  --model <name>       Override the model id\n"
       "  --base-url <url>     Override the OpenAI-compatible base URL\n"
+      "  --api-key-file <file> Read the provider key from a file when the env var is unset\n"
       "  --max-steps <n>      Tool-calling steps before stopping (default 12)\n"
       "  --max-depth <n>      Maximum delegate nesting depth (default 2, 0 disables)\n"
       "  --plan               Read-only planning mode (no writes, edits, downloads or HTTP)\n"
@@ -634,6 +635,8 @@ int main(int argc, char** argv) {
   bool show_resources = false;
   bool base_url_from_flag = false;
   bool model_from_flag = false;
+  bool api_key_file_from_flag = false;
+  std::string api_key_file;
   bool agents_dir_from_flag = false;
   bool skills_dir_from_flag = false;
   bool list_agents = false;
@@ -705,6 +708,9 @@ int main(int argc, char** argv) {
     } else if (arg == "--base-url") {
       config.base_url = next("--base-url");
       base_url_from_flag = true;
+    } else if (arg == "--api-key-file") {
+      api_key_file = next("--api-key-file");
+      api_key_file_from_flag = true;
     } else if (arg == "--max-steps") {
       max_steps = std::atoi(next("--max-steps").c_str());
       max_steps_from_flag = true;
@@ -810,11 +816,17 @@ int main(int argc, char** argv) {
   if (serve && serve_token.empty()) {
     serve_token = random_token();
   }
-  EnvFn env = [](const std::string& name) -> std::string {
+  std::string api_key_file_value;
+  EnvFn env = [&config, &api_key_file_value](const std::string& name) -> std::string {
     const char* value = std::getenv(name.c_str());
-    return value != nullptr ? value : std::string();
+    if (value != nullptr && *value != '\0') return value;
+    if (name == config.api_key_env) return api_key_file_value;
+    return std::string();
   };
 
+  if (api_key_file_from_flag) {
+    config.api_key_file = api_key_file;
+  }
   if (!config_path.empty()) {
     std::string text;
     if (!read_file(config_path, &text)) {
@@ -834,6 +846,9 @@ int main(int argc, char** argv) {
           config.model = model["model"].as_string(config.model);
         }
         config.api_key_env = model["api_key_env"].as_string(config.api_key_env);
+        if (!api_key_file_from_flag) {
+          config.api_key_file = model["api_key_file"].as_string(config.api_key_file);
+        }
         if (model["temperature"].is_number()) {
           config.temperature = model["temperature"].as_number(config.temperature);
         }
@@ -916,6 +931,37 @@ int main(int argc, char** argv) {
     } catch (const JsonError& failure) {
       std::fprintf(stderr, "invalid config: %s\n", failure.what());
       return 1;
+    }
+  }
+
+  if (!config.api_key_file.empty()) {
+    const char* environment_key = std::getenv(config.api_key_env.c_str());
+    if (environment_key == nullptr || *environment_key == '\0') {
+      std::string key;
+      if (!read_file(config.api_key_file, &key) || key.size() > 8192) {
+        std::fprintf(stderr, "cannot read API key file: %s\n",
+                     config.api_key_file.c_str());
+        return 2;
+      }
+      std::size_t begin = 0;
+      while (begin < key.size() &&
+             (key[begin] == ' ' || key[begin] == '\t' || key[begin] == '\r' ||
+              key[begin] == '\n')) {
+        ++begin;
+      }
+      std::size_t end = key.size();
+      while (end > begin &&
+             (key[end - 1] == ' ' || key[end - 1] == '\t' ||
+              key[end - 1] == '\r' || key[end - 1] == '\n')) {
+        --end;
+      }
+      key = key.substr(begin, end - begin);
+      if (key.empty()) {
+        std::fprintf(stderr, "API key file is empty: %s\n",
+                     config.api_key_file.c_str());
+        return 2;
+      }
+      api_key_file_value = key;
     }
   }
 
@@ -1103,7 +1149,10 @@ int main(int argc, char** argv) {
   if (secret_env.empty()) {
     secret_env.push_back(config.api_key_env);
   }
-  const SecretSet secrets = SecretSet::from_env(secret_env);
+  SecretSet secrets = SecretSet::from_env(secret_env);
+  if (!api_key_file_value.empty()) {
+    secrets.add(api_key_file_value);
+  }
 
   HttpFn http = make_http_client();
   DownloadFn download = make_download_client();
