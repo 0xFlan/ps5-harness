@@ -37,6 +37,15 @@ shasum -a 256 -c SHA256SUMS     # macOS
 sha256sum -c SHA256SUMS         # Linux
 ```
 
+## Third-party licences
+
+The archive contains the complete third-party notices in
+`THIRD-PARTY-NOTICES.md` and the corresponding full licence texts in
+`licenses/`. Read them before staging; both the notices and every licence file
+are covered by `SHA256SUMS`. The payload statically includes curl, OpenSSL,
+zlib, Zstandard (and its embedded xxHash), libpsl/Public Suffix List data, and
+the LLVM C++ runtime (`libc++`, `libc++abi` and `libunwind`).
+
 ## What you need
 
 - A PS5 that is already on a jailbroken firmware with a working loader.
@@ -101,12 +110,6 @@ and pass the same value to the harness at launch.
 For a repeatable setup, keep the same `--serve-token` and `--session` path
 across relaunches. A token generated because `--serve-token` was omitted changes
 on every launch.
-
-## Third-party notices
-
-The release statically links libcurl, OpenSSL, zlib, zstd and libpsl. The
-required notices and full licence texts are in `THIRD-PARTY-NOTICES.md` and
-`licenses/`; both are included in `SHA256SUMS`.
 
 ## Model key and local-model boundary
 

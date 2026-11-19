@@ -86,7 +86,7 @@ make release
 
 The bundle contains the validated `PHAR00001/` package, `harness.elf`, the
 local discovery helper, examples, a console-ready config, third-party licence
-notices and `START-HERE.md` with
+notices with full texts under `licenses/`, and `START-HERE.md` with
 the local-network launch sequence. It deliberately excludes `.deps`, build
 outputs, configs, secrets and internal console reports. Verify the bundle with
 `SHA256SUMS`; do not expose the LAN listener to the internet. The release build

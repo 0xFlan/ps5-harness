@@ -82,6 +82,11 @@ The static dependencies come from the PacBrew v0.41.1 image:
 | zstd | 1.5.6 | BSD-3-Clause |
 | libpsl | 0.21.5 | MIT (bundled Public Suffix List data MPL-2.0) |
 
+The SDK driver also statically links the LLVM 18.1.0 C++ runtime (`libc++`,
+`libc++abi`, `libunwind`) and zstd includes its embedded xxHash 0.8.2. The
+release notices and full licence texts cover those components as well; see
+`THIRD-PARTY-NOTICES.md`.
+
 They are linked statically; a distributable build must carry their licence
 notices. The title (non-PIE) link is:
 
