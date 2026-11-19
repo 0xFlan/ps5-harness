@@ -6,7 +6,11 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
+#if defined(__linux__)
+#include <mntent.h>
+#endif
 
 namespace ps5h {
 namespace {
@@ -23,6 +27,7 @@ unsigned long long blocks_to_bytes(unsigned long long blocks,
   return blocks * block_size;
 }
 
+#if !defined(__linux__)
 MountSpace from_statfs(const struct statfs& entry) {
   MountSpace space;
   space.path = entry.f_mntonname;
@@ -36,6 +41,7 @@ MountSpace from_statfs(const struct statfs& entry) {
   space.ok = true;
   return space;
 }
+#endif
 
 MountSpace from_statvfs(const std::string& path) {
   MountSpace space;
@@ -128,6 +134,18 @@ ResourceProfile probe_resources(const std::vector<std::string>& mount_paths) {
   }
 #endif
 
+#if defined(__linux__)
+  FILE* mounts = ::setmntent("/proc/mounts", "r");
+  if (mounts != nullptr) {
+    struct mntent* entry = nullptr;
+    while ((entry = ::getmntent(mounts)) != nullptr) {
+      MountSpace space = from_statvfs(entry->mnt_dir);
+      if (entry->mnt_type != nullptr) space.type = entry->mnt_type;
+      profile.mounts.push_back(space);
+    }
+    ::endmntent(mounts);
+  }
+#else
   struct statfs* entries = nullptr;
   const int count = ::getmntinfo(&entries, MNT_NOWAIT);
   if (count > 0 && entries != nullptr) {
@@ -141,6 +159,7 @@ ResourceProfile probe_resources(const std::vector<std::string>& mount_paths) {
   // that it must not be freed; doing so traps.
 #if !defined(__APPLE__)
   std::free(entries);
+#endif
 #endif
 
   profile.candidates.reserve(mount_paths.size());
