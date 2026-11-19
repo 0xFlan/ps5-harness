@@ -1,10 +1,11 @@
 # PS5 agent build and package
 
-Status: **the real agent cross-builds, links, validates and runs on a console.**
-`make -C platform/ps5` produces `eboot.bin` and `harness.elf` from the same
-`src/*.cpp` sources as the host harness, linked against PacBrew's static
-libcurl/OpenSSL, plus a real SFO and icon. Boot, resources, TLS, `dlopen` and
-writes were observed on a PS5 on 2026-11-18; the evidence is in
+Status: **the real agent cross-builds, links, validates and runs on a console,
+including an in-process local model.** `make -C platform/ps5` produces
+`eboot.bin` and `harness.elf` from the same `src/*.cpp` sources as the host
+harness, linked against PacBrew's static libcurl/OpenSSL and llama.cpp, plus a
+real SFO and icon. Boot, resources, TLS, `dlopen`, writes and a console-local
+tool turn were observed on a PS5 on 2026-11-18; the evidence is in
 `docs/CONSOLE-REPORT.md`. The title-install path is still untested.
 
 ## What the build produces
@@ -14,13 +15,13 @@ writes were observed on a PS5 on 2026-11-18; the evidence is in
 
 | File | Bytes | sha256 |
 |---|---|---|
-| `eboot.bin` | 7,733,984 | `0959fcca0fcf23d1b0269807ad0ce334e3347f72cdad6dfc546d3f9cfc852ee3` |
-| `harness.elf` | 9,727,192 | `30dd3378a76ab26c923abfd343ecd0ce7f929c09a603634dfe4e8644d00534fe` |
+| `eboot.bin` | 20,938,752 | `58f955e9fe6446c2d33a049ac9ef6e571afc9bba9e4b9616e230428c7606b516` |
+| `harness.elf` | 27,076,576 | `1787cba1f744c174cb14112b64cf96572b1712a6f598a7be281f27de8f22a68e` |
 | `sce_sys/param.sfo` | 376 | `6bf5d47549c9314c6cf5b5355cae17f1603c210ff6aaafa52978221c6e19803f` |
 | `sce_sys/icon0.png` | 30,867 | `72b716d302f400a14cc9a879f7ec3474281a5f7127663fd2bc395d53cdd1a323` |
 
-Measured from build id `0.1.0-f766e73` (LAN browser workspace and power-tool
-surface). The build id
+Measured from build id `0.1.0-71b39c7` (runtime Model and provider panel;
+`/data/harness.elf` on the console). The build id
 embeds `VERSION` and the commit, so any commit or source change alters the two
 binaries; quote the build id, not only a hash, in a console report.
 
@@ -69,7 +70,8 @@ src/agent.cpp  src/agents.cpp src/builtin_skills.cpp src/core.cpp
 src/delegation.cpp src/endpoints.cpp src/http.cpp src/json.cpp src/main.cpp
 src/mission.cpp src/mission_parse.cpp src/paths.cpp src/plugins.cpp
 src/policy.cpp src/pool.cpp src/recon.cpp src/resources.cpp src/runtime.cpp
-src/secrets.cpp src/sha256.cpp src/skills.cpp platform/ps5/console_compat.cpp
+src/secrets.cpp src/sha256.cpp src/skills.cpp src/local_model.cpp
+platform/ps5/console_compat.cpp
 ```
 
 The static dependencies come from the PacBrew v0.41.1 image:
@@ -81,6 +83,8 @@ The static dependencies come from the PacBrew v0.41.1 image:
 | zlib | 1.3.2 | zlib licence |
 | zstd | 1.5.6 | BSD-3-Clause |
 | libpsl | 0.21.5 | MIT (bundled Public Suffix List data MPL-2.0) |
+| llama.cpp / ggml | pinned source | MIT |
+| cpp-httplib | bundled with llama.cpp | MIT |
 
 The SDK driver also statically links the LLVM 18.1.0 C++ runtime (`libc++`,
 `libc++abi`, `libunwind`) and zstd includes its embedded xxHash 0.8.2. The
@@ -94,10 +98,14 @@ notices. The title (non-PIE) link is:
 prospero-clang++ ... -DPS5H_PS5_TARGET -DCURL_STATICLIB \
   -Wl,--no-pie -Wl,--wrap=fcntl \
   src/*.cpp console_compat.cpp \
+  -Wl,--start-group <llama-ps5 archives> -Wl,--end-group \
   -lcurl -lpsl -lssl -lcrypto -lzstd -lz -ldl -pthread
 ```
 
-The elfldr link is identical without `-Wl,--no-pie`, so `harness.elf` is ET_DYN.
+The llama archives come from `.deps/llama-ps5` and are listed in
+`platform/ps5/Makefile`. `console_compat.cpp` supplies `accept4` for
+cpp-httplib. The local server uses a 16 MiB pthread stack. The elfldr link is
+identical without `-Wl,--no-pie`, so `harness.elf` is ET_DYN.
 
 ### Two ELF forms
 
@@ -164,6 +172,9 @@ make -C platform/ps5 host-assets
 - **Non-blocking sockets** — `ps5h_console_nonblocking()` sets the console's
   `SO_NBIO` (`0x1200`), which `CURLOPT_SOCKOPTFUNCTION` applies to every socket.
   curl's own `fcntl(O_NONBLOCK)` does not do this on the console.
+- **`accept4`** — the SDK headers declare it but libkernel exports only
+  `accept`. `console_compat.cpp` supplies the small wrapper that cpp-httplib's
+  server loop needs.
 - **`fcntl` wrapper** — `__wrap_fcntl` accepts `FD_CLOEXEC` when the sandboxed
   libc returns `EINVAL`, and maps `O_NONBLOCK` to `SO_NBIO`. Files and pipes
   stay on the real call; `ENOTSOCK` is treated as a harmless file flag.

@@ -289,6 +289,24 @@ through an actual console rest-mode wake. A firmware that terminates the
 payload or resets the jailbreak still requires a manual relaunch. The support
 procedure is [`RECOVERY.md`](RECOVERY.md).
 
+The console now has an agent that operates it. Because the payload has no native
+window, the console's screen is the workspace it serves, so the driver models
+that surface in-process: `screen_shot` returns an ASCII frame and the focused
+control, `screen_press` applies the same DualSense mapping the page's gamepad
+layer uses, `screen_type` fills the focused field, and `screen_flow` runs up to
+64 steps with expectations and stops at the first mismatch. The actions reach
+the real process: Apply goes through `apply_model_request`, the same function
+`POST /api/model` calls, and the home-screen controls call the same tile
+manager as `/api/home-tile`. `/api/ui` lets a browser follow the panel the agent
+opened, `/api/ui/panel` tells the agent which panel a person is looking at, and
+`/api/ui/focus` takes the control a person reaches with the controller, keyboard
+or click so the agent's frame shows where they are. A person's focus ends the
+follow window, so their typing is not interrupted by the page moving.
+`--ui-shot` and `--ui-flow` run the surface with no model at all. This is
+host-verified only (`tests/console_ui_test.cpp`, `examples/flows/panel-tour.json`).
+It does not reach the firmware's own menus: there is no framebuffer capture and
+no HID injection from a payload.
+
 Completion: a ten-minute session with no terminal open — browse a catalogue,
 download something, see progress, cancel one, find the file afterwards — on the
 console, using the browser workspace or a native renderer.

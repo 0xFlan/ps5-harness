@@ -64,6 +64,24 @@ h1{font-size:16px;margin:4px 0 0;font-weight:600}
 .pill{border:1px solid #24466e;background:#0b1a2c;border-radius:999px;padding:5px 9px;
   font-size:10px;letter-spacing:.09em;color:#a9c5e7;white-space:nowrap}
 .pill.full{border-color:#2d8cff55;color:#9dccff}
+.model-pill{cursor:pointer;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.model-pill:hover{border-color:#3d6c9f;color:#dcecff}
+.model-current{font-size:11px;line-height:1.45;color:#b9d9ff;border:1px solid #1f3552;border-radius:9px;
+  padding:9px 10px;background:#091422;overflow-wrap:anywhere}
+.model-form{display:flex;flex-direction:column;gap:9px}
+.model-field{display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.08em;color:var(--dim)}
+.model-field input,.model-field select{width:100%;background:#060d17;border:1px solid #284b72;border-radius:8px;
+  color:var(--text);padding:8px 9px;font-size:11px;outline:0}
+.model-field input:focus,.model-field select:focus{border-color:#3f7fbe}
+.model-field.model-toggle{flex-direction:row;align-items:center;gap:8px;letter-spacing:.02em;color:#b9d9ff}
+.model-field.model-toggle input{width:auto;margin:0}
+.model-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.model-actions{display:flex;gap:7px;margin-top:2px}
+.model-apply{border:1px solid #3f8fe8;background:#1d67c5;border-radius:8px;padding:8px 10px;
+  color:white;font-size:11px;font-weight:700}
+.model-apply:disabled{opacity:.45;cursor:default}
+.model-error{min-height:14px;color:var(--red);font-size:10px;line-height:1.4}
+.model-note{color:var(--dim);font-size:10px;line-height:1.45;margin:4px 0 0}
 .ctx{width:96px;height:5px;background:#132136;border-radius:99px;overflow:hidden}
 .ctx i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2f8cff,#70c1ff)}
 .messages{flex:1;overflow:auto;padding:30px clamp(20px,5vw,70px) 20px;scroll-behavior:smooth}
@@ -443,6 +461,43 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
 .tool:hover{border-color:var(--ps-focus-line);background:var(--ps-focus-fill)}
 .tool-name{font-size:14px;color:var(--ps-ink);font-weight:400;font-family:var(--ps-font)}
 .tool-desc{font-size:12px;color:var(--ps-ink-3);margin-top:4px;font-weight:300}
+
+/* ---- Model and provider: PS5 setting rows, not a second theme ---------- */
+.model-pill{max-width:300px}
+.model-current{
+  margin:0 0 18px;padding:0 0 16px;border:0;border-bottom:1px solid var(--ps-hair);
+  border-radius:0;background:transparent;color:var(--ps-ink-2);
+  font-size:13px;line-height:1.6;font-weight:300;overflow-wrap:anywhere;
+}
+.model-form{gap:0}
+.model-field{
+  display:block;padding:14px 0;border-bottom:1px solid var(--ps-hair);
+  font-size:11px;letter-spacing:.04em;color:var(--ps-ink-4);font-weight:300;
+}
+.model-field input,.model-field select{
+  width:100%;margin-top:8px;padding:10px 12px;border:1px solid var(--ps-hair);
+  border-radius:var(--ps-r);background:rgba(255,255,255,.035);color:var(--ps-ink);
+  font:300 13px/1.4 var(--ps-font);outline:0;transition:border-color .14s,background .14s;
+}
+.model-field input::placeholder{color:var(--ps-ink-4)}
+.model-field input:focus,.model-field select:focus{
+  border-color:var(--ps-focus-line);background:var(--ps-focus-fill);
+}
+.model-field.model-toggle{display:flex;align-items:center;gap:10px;padding:14px 0;color:var(--ps-ink-2)}
+.model-field.model-toggle input{width:auto;margin:0}
+.model-field select option{background:#111419;color:var(--ps-ink)}
+.model-grid{gap:10px}
+.model-actions{margin-top:18px}
+.model-apply{
+  width:100%;min-height:46px;border:1px solid var(--ps-hair);border-radius:999px;
+  background:transparent;color:var(--ps-ink);font-size:14px;font-weight:400;
+  letter-spacing:.01em;transition:background .14s,border-color .14s,transform .12s;
+}
+.model-apply:hover{border-color:var(--ps-focus-line);background:var(--ps-focus-fill)}
+.model-apply:active{transform:translateY(1px)}
+.model-apply:disabled{opacity:.4;cursor:default;transform:none}
+.model-error{color:#ff9aa8;font-size:11px}
+.model-note{color:var(--ps-ink-4);font-size:12px;line-height:1.6;font-weight:300;margin:14px 0 0}
 .stats{border-color:var(--ps-hair);padding:18px 24px 20px;background:transparent}
 .stat{font-size:13px;padding:7px 0;color:var(--ps-ink-3);border-bottom:1px solid var(--ps-hair-soft);font-weight:300}
 .stat:last-of-type{border-bottom:0}
@@ -614,6 +669,7 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
       <button class="active"><span class="ico">◈</span>Workspace</button>
       <button id="show-activity"><span class="ico">⌁</span>Activity</button>
       <button id="show-tools"><span class="ico">⌘</span>Tools</button>
+      <button id="show-model"><span class="ico">◉</span>Model</button>
       <button id="show-home"><span class="ico">▣</span>Home screen</button>
     </nav>
     <div class="section-label">Current session</div>
@@ -633,7 +689,7 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
       <div class="status">
         <span class="pill full" id="mode">Full access</span>
         <button class="pill input-pill" id="input-pill" type="button" title="Keyboard, controller and voice input help">Keyboard + mouse</button>
-        <span class="pill" id="model">model</span>
+        <button class="pill model-pill" id="model" type="button" title="Choose model and provider">model</button>
         <span class="ctx"><i id="ctxbar"></i></span>
         <span class="clock" id="clock"></span>
       </div>
@@ -657,6 +713,7 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
         <button data-mobile="chat" class="active">Console</button>
         <button data-mobile="activity">Activity</button>
         <button data-mobile="tools">Tools</button>
+        <button data-mobile="model">Model</button>
         <button data-mobile="home">Home</button>
       </nav>
       <form class="composer" id="composer">
@@ -679,6 +736,7 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
     <div class="tabs">
       <button class="active" data-tab="activity">Activity</button>
       <button data-tab="tools">Tools</button>
+      <button data-tab="model">Model</button>
       <button data-tab="home">Home screen</button>
     </div>
     <div class="panel active" id="panel-activity">
@@ -688,6 +746,45 @@ h1{font-size:28px;font-weight:200;letter-spacing:.01em;margin-top:5px;color:#f4f
     <div class="panel" id="panel-tools">
       <h3>Tools</h3>
       <div id="tools"><div class="event">Loading…</div></div>
+    </div>
+    <div class="panel" id="panel-model">
+      <h3>Model &amp; provider</h3>
+      <div class="model-current" id="model-current">Loading the current provider…</div>
+      <form class="model-form" id="model-form">
+        <label class="model-field">Endpoint preset
+          <select id="model-preset" aria-label="Endpoint preset"></select>
+        </label>
+        <label class="model-field">Base URL
+          <input id="model-base-url" type="text" spellcheck="false" autocomplete="off" placeholder="https://api.example.com/v1">
+        </label>
+        <label class="model-field model-toggle"><input id="model-local" type="checkbox"> Run on this console (built in, no key)</label>
+        <label class="model-field">Local GGUF path
+          <input id="model-local-path" type="text" spellcheck="false" autocomplete="off" placeholder="/app0/models/model.gguf">
+        </label>
+        <label class="model-field">Model ID
+          <input id="model-name" type="text" spellcheck="false" autocomplete="off" list="model-suggestions" placeholder="model-id">
+        </label>
+        <datalist id="model-suggestions"></datalist>
+        <label class="model-field">Key environment
+          <input id="model-key-env" type="text" spellcheck="false" autocomplete="off" placeholder="PROVIDER_API_KEY">
+        </label>
+        <label class="model-field">Key file on console
+          <input id="model-key-file" type="text" spellcheck="false" autocomplete="off" placeholder="/data/ps5h-secrets/api-key">
+        </label>
+        <div class="model-grid">
+          <label class="model-field">Temperature
+            <input id="model-temperature" type="number" min="0" max="2" step="0.1" inputmode="decimal">
+          </label>
+          <label class="model-field">Max tokens
+            <input id="model-max-tokens" type="number" min="0" max="32768" step="1" inputmode="numeric">
+          </label>
+        </div>
+        <div class="model-actions">
+          <button class="model-apply" id="model-apply" type="submit">Apply to next turn</button>
+        </div>
+        <div class="model-error" id="model-error" aria-live="polite"></div>
+        <p class="model-note">Choose a preset or enter any OpenAI-compatible endpoint. The key is read from the named environment variable or console key file; its contents are never returned to this page. The on-console option loads a GGUF inside PS Harness on loopback and needs no key or second app. Changes apply immediately to the next turn.</p>
+      </form>
     </div>
     <div class="panel home-panel" id="panel-home">
       <div class="home-shell">
@@ -968,6 +1065,130 @@ function renderState(data) {
   if (data.home_tile) renderHomeTile(data.home_tile);
   setConnected(true);
 }
+let modelBusy = false;
+function modelSource(current) {
+  if (current.local) return 'on-console · no API key';
+  if (current.api_key_file) return 'key file ' + current.api_key_file;
+  if (current.api_key_env) return 'env ' + current.api_key_env;
+  return 'no key';
+}
+function renderModelCurrent(current) {
+  const name = current.model || 'model';
+  const base = current.base_url || '';
+  $('model-current').innerHTML =
+    '<b>' + esc(name) + '</b><br><span>' + esc(base) + '</span><br>' +
+    '<span>' + esc(modelSource(current)) + '</span>';
+}
+function fillModelSuggestions(presets, current) {
+  const seen = new Set();
+  const names = [];
+  const add = (value) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value); names.push(value);
+  };
+  if (current && current.model) add(current.model);
+  (presets || []).forEach((preset) => (preset.models || []).forEach(add));
+  $('model-suggestions').innerHTML = names.map((name) =>
+    '<option value="' + esc(name) + '"></option>').join('');
+}
+function fillModelForm(current, presets) {
+  current = current || {};
+  const select = $('model-preset');
+  const match = (presets || []).find((preset) => preset.base_url === current.base_url);
+  select.innerHTML = '<option value="">Custom endpoint</option>' +
+    (presets || []).map((preset) => '<option value="' + esc(preset.id) + '">' +
+      esc(preset.label) + '</option>').join('');
+  select.value = match ? match.id : '';
+  $('model-base-url').value = current.base_url || '';
+  $('model-local').checked = !!current.local;
+  $('model-local-path').value = current.local_model_path || '';
+  $('model-name').value = current.model || '';
+  $('model-key-env').value = current.api_key_env || '';
+  $('model-key-file').value = current.api_key_file || '';
+  $('model-temperature').value = current.temperature == null ? '' : current.temperature;
+  $('model-max-tokens').value = current.max_tokens == null ? '' : current.max_tokens;
+  fillModelSuggestions(presets, current);
+  renderModelCurrent(current);
+  $('model-error').textContent = '';
+}
+async function loadModelSettings() {
+  if (!state.token) return;
+  $('model-error').textContent = '';
+  try {
+    const data = await api('/api/model', { timeoutMs: 10000 });
+    state.modelData = data;
+    fillModelForm(data.current, data.presets);
+  } catch (error) {
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
+    else $('model-error').textContent = String(error.message || error);
+  }
+}
+function applyModelPreset() {
+  const data = state.modelData || {};
+  const preset = (data.presets || []).find((item) => item.id === $('model-preset').value);
+  if (!preset) return;
+  $('model-base-url').value = preset.base_url || '';
+  $('model-local').checked = !!preset.local;
+  $('model-name').value = preset.model || '';
+  if (preset.local && !$('model-local-path').value) {
+    $('model-local-path').value = (state.modelData && state.modelData.current && state.modelData.current.local_model_path) || '';
+  }
+  $('model-key-env').value = preset.api_key_env || '';
+  // A key-file override is authoritative; clear it so a preset change does not
+  // silently send the previous provider's key to the new endpoint.
+  $('model-key-file').value = '';
+  fillModelSuggestions(data.presets, { model: preset.model });
+  $('model-error').textContent = '';
+}
+async function applyModelSettings(event) {
+  event.preventDefault();
+  if (modelBusy) return;
+  const baseUrl = $('model-base-url').value.trim();
+  const model = $('model-name').value.trim();
+  const local = $('model-local').checked;
+  if (!baseUrl || !model) {
+    $('model-error').textContent = 'Base URL and model ID are required.';
+    return;
+  }
+  modelBusy = true;
+  const button = $('model-apply');
+  button.disabled = true;
+  $('model-error').textContent = '';
+  try {
+    const temperature = $('model-temperature').value === ''
+      ? 0.2 : Number($('model-temperature').value);
+    const maxTokens = $('model-max-tokens').value === ''
+      ? 0 : Number($('model-max-tokens').value);
+    const data = await api('/api/model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_url: baseUrl,
+        model,
+        local,
+        local_model_path: local ? $('model-local-path').value.trim() : '',
+        local_model_port: (state.modelData && state.modelData.current && state.modelData.current.local_model_port) || 18081,
+        local_model_threads: (state.modelData && state.modelData.current && state.modelData.current.local_model_threads) || 4,
+        local_model_context: (state.modelData && state.modelData.current && state.modelData.current.local_model_context) || 4096,
+        api_key_env: local ? '' : $('model-key-env').value.trim(),
+        api_key_file: local ? '' : $('model-key-file').value.trim(),
+        temperature,
+        max_tokens: maxTokens
+      }),
+      timeoutMs: 20000
+    });
+    state.modelData = data;
+    fillModelForm(data.current, data.presets);
+    toast('Model switched to ' + (data.current && data.current.model || model));
+    await refreshState();
+  } catch (error) {
+    if (error instanceof AuthError) showTokenRejected('Token rejected. Enter the current token.');
+    else $('model-error').textContent = String(error.message || error);
+  } finally {
+    modelBusy = false;
+    button.disabled = false;
+  }
+}
 let homeBusy = false;
 function setHomeBusy(busy) {
   homeBusy = busy;
@@ -1079,11 +1300,15 @@ $('new-session').addEventListener('click', async () => {
 });
 $('show-activity').addEventListener('click', () => selectTab('activity'));
 $('show-tools').addEventListener('click', () => selectTab('tools'));
+$('show-model').addEventListener('click', () => selectTab('model'));
 $('show-home').addEventListener('click', () => selectTab('home'));
+$('model').addEventListener('click', () => selectTab('model'));
+$('model-preset').addEventListener('change', applyModelPreset);
+$('model-form').addEventListener('submit', applyModelSettings);
 function selectTab(name) {
   document.body.classList.toggle('home-tab', name === 'home');
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  ['activity', 'tools', 'home'].forEach((panel) => {
+  ['activity', 'tools', 'model', 'home'].forEach((panel) => {
     const element = $('panel-' + panel);
     if (element) element.classList.toggle('active', name === panel);
   });
@@ -1092,8 +1317,70 @@ function selectTab(name) {
     document.body.classList.add('mobile-panel');
     document.querySelectorAll('[data-mobile]').forEach((b) => b.classList.toggle('active', b.dataset.mobile === name));
   }
+  if (name === 'model') loadModelSettings();
   if (name === 'home') refreshHomeTile();
+  echoPanel(name);
 }
+// The agent's screen and this page are the same surface. A panel a person opens
+// is what the agent's next frame shows.
+function echoPanel(name) {
+  if (!state.token) return;
+  fetch('/api/ui/panel', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+    body: JSON.stringify({ panel: name })
+  }).catch(() => {});
+}
+// Focus is shared the same way. A control a person reaches with the controller,
+// the keyboard or a click reports its id, so the agent's next frame shows where
+// they are. Only the ids differ between the page and the console surface.
+const CONSOLE_CONTROL_IDS = {
+  prompt: 'composer:field', send: 'composer:send',
+  'model-local': 'model:local', 'model-base-url': 'model:base_url',
+  'model-name': 'model:id', 'model-key-env': 'model:key-env',
+  'model-key-file': 'model:key-file', 'model-temperature': 'model:temperature',
+  'model-max-tokens': 'model:max_tokens', 'model-apply': 'model:apply',
+  'home-add': 'home:add', 'home-check': 'home:check', 'home-remove': 'home:remove'
+};
+function consoleControlId(el) {
+  if (!el || el === document.body || !el.closest) return '';
+  const tab = el.closest('.tabs button[data-tab]');
+  if (tab) return 'rail:' + tab.dataset.tab;
+  const tool = el.closest('[data-tool]');
+  if (tool) return 'tool:' + tool.dataset.tool;
+  return CONSOLE_CONTROL_IDS[el.id] || '';
+}
+let consoleFocusSent = '';
+function reportConsoleFocus(el) {
+  if (!state.token) return;
+  const id = consoleControlId(el);
+  if (!id || id === consoleFocusSent) return;
+  consoleFocusSent = id;
+  fetch('/api/ui/focus', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+    body: JSON.stringify({ focus: id })
+  }).catch(() => { consoleFocusSent = ''; });
+}
+document.addEventListener('focusin', (event) => reportConsoleFocus(event.target), true);
+// And a panel the agent opens is followed here while it is driving, so a person
+// watching sees the console move by itself.
+let consoleDriverPanel = '';
+async function pollConsoleDriver() {
+  if (!state.token) return;
+  try {
+    const data = await api('/api/ui', { timeoutMs: 4000 });
+    if (!data || !data.driving || !data.panel) return;
+    if (data.panel === consoleDriverPanel) return;
+    consoleDriverPanel = data.panel;
+    const active = document.querySelector('.tabs button.active');
+    if (!active || active.dataset.tab !== data.panel) {
+      selectTab(data.panel);
+      toast('Console driver: ' + data.panel);
+    }
+  } catch (_) {}
+}
+setInterval(pollConsoleDriver, 1500);
 function closeMobilePanel() {
   document.querySelector('.inspector').classList.remove('mobile-open');
   document.body.classList.remove('mobile-panel');
@@ -1225,7 +1512,7 @@ function isVisible(el) {
 }
 function visibleFocusables() {
   return Array.from(document.querySelectorAll(
-    'button:not([disabled]),textarea:not([disabled]),input:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'
+    'button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'
   )).filter(isVisible);
 }
 function saveCaret(target) {

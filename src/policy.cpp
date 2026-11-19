@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -99,6 +100,60 @@ bool is_private_address(const std::string& ip) {
     }
   }
   return false;
+}
+
+bool local_model_endpoint(const std::string& url, std::string* reason) {
+  if (reason != nullptr) reason->clear();
+  if (url.empty() || url.size() > 500 ||
+      url.find_first_of(" \t\r\n") != std::string::npos) {
+    if (reason != nullptr) *reason = "local endpoint must be one URL without spaces";
+    return false;
+  }
+  const std::size_t scheme_end = url.find("://");
+  if (scheme_end == std::string::npos) {
+    if (reason != nullptr) *reason = "local endpoint is not an absolute URL";
+    return false;
+  }
+  const std::size_t authority_end = url.find_first_of("/?#", scheme_end + 3);
+  const std::string authority =
+      url.substr(scheme_end + 3, authority_end == std::string::npos
+                                    ? std::string::npos
+                                    : authority_end - (scheme_end + 3));
+  if (authority.find('@') != std::string::npos) {
+    if (reason != nullptr) *reason = "local endpoint must not contain user info";
+    return false;
+  }
+  ParsedUrl parsed;
+  if (!parse_url(url, &parsed)) {
+    if (reason != nullptr) *reason = "local endpoint is malformed";
+    return false;
+  }
+  if (parsed.scheme != "http") {
+    if (reason != nullptr) *reason = "local endpoint must use http on loopback";
+    return false;
+  }
+  const bool loopback_host = parsed.host == "localhost" ||
+                             parsed.host == "127.0.0.1" || parsed.host == "::1";
+  if (!loopback_host) {
+    if (reason != nullptr) *reason = "local endpoint host must be localhost, 127.0.0.1 or ::1";
+    return false;
+  }
+  if (parsed.port.empty()) {
+    if (reason != nullptr) *reason = "local endpoint must name an explicit port";
+    return false;
+  }
+  char* end = nullptr;
+  const unsigned long port = std::strtoul(parsed.port.c_str(), &end, 10);
+  if (end == nullptr || *end != '\0' || port == 0 || port > 65535) {
+    if (reason != nullptr) *reason = "local endpoint port must be 1..65535";
+    return false;
+  }
+  if ((parsed.path != "/v1" && parsed.path.rfind("/v1/", 0) != 0) ||
+      parsed.path.find_first_of("?#") != std::string::npos) {
+    if (reason != nullptr) *reason = "local endpoint path must be /v1";
+    return false;
+  }
+  return true;
 }
 
 bool parse_url(const std::string& url, ParsedUrl* out) {

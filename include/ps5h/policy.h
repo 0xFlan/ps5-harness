@@ -52,4 +52,11 @@ bool parse_url(const std::string& url, ParsedUrl* out);
 // True for loopback, private, link-local, CGNAT and unspecified addresses.
 bool is_private_address(const std::string& ip);
 
+// The local model server is a separate, deliberately narrow case: the model
+// runs on the console itself, so it cannot be reached over the LAN and cannot
+// leak a provider key. Only cleartext loopback on an explicit port with the
+// OpenAI-compatible /v1 base path is accepted. This is not a general private
+// network allowance and must never be used for http_get or manifests.
+bool local_model_endpoint(const std::string& url, std::string* reason);
+
 }  // namespace ps5h

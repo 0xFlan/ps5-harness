@@ -44,6 +44,24 @@ AGENT_HDR    := $(wildcard ../../include/ps5h/*.h)
 PACBREW_INC  := $(PACBREW_ROOT)/target/user/homebrew/include
 PACBREW_LIB  := $(PACBREW_ROOT)/target/user/homebrew/lib
 
+# llama.cpp is linked into the harness: the on-console model is part of this
+# program, not a separate PS5LM app. The static archives are produced by the
+# pinned PS5 llama.cpp build (see docs/LOCAL-MODEL.md).
+LLAMA_PS5 ?= $(abspath ../../.deps/llama-ps5)
+LLAMA_PS5_LIBS := \
+  $(LLAMA_PS5)/tools/server/libllama-server-impl.a \
+  $(LLAMA_PS5)/tools/server/libserver-context.a \
+  $(LLAMA_PS5)/common/libllama-common.a \
+  $(LLAMA_PS5)/common/libllama-common-base.a \
+  $(LLAMA_PS5)/tools/mtmd/libmtmd.a \
+  $(LLAMA_PS5)/src/libllama.a \
+  $(LLAMA_PS5)/ggml/src/libggml.a \
+  $(LLAMA_PS5)/ggml/src/libggml-cpu.a \
+  $(LLAMA_PS5)/ggml/src/libggml-base.a \
+  $(LLAMA_PS5)/vendor/hash/libvendor-hash.a \
+  $(LLAMA_PS5)/tools/ui/libllama-ui.a \
+  $(LLAMA_PS5)/vendor/cpp-httplib/libcpp-httplib.a
+
 # Two ELF forms are needed. elfldr only spawns ET_DYN payloads, so the
 # package's harness.elf is left as the SDK driver's default PIE. make_fself.py
 # accepts ET_EXEC (and SCE variants), not ET_DYN, so eboot.bin is packed from a
@@ -52,7 +70,8 @@ CXXFLAGS += -std=c++20 -O2 -Wall -Wextra -Werror -I../../include \
             -DPS5H_BUILD_ID=\"$(BUILD_ID)\" -DPS5H_TITLE_ID=\"$(TITLE_ID)\"
 NOPIE_FLAGS    := -Wl,--no-pie
 AGENT_CXXFLAGS := $(CXXFLAGS) -DPS5H_PS5_TARGET -I$(PACBREW_INC) -DCURL_STATICLIB
-AGENT_LIBS     := -L$(PACBREW_LIB) -lcurl -lpsl -lssl -lcrypto -lzstd -lz -ldl -pthread
+AGENT_LIBS     := -Wl,--start-group $(LLAMA_PS5_LIBS) -Wl,--end-group \
+                  -L$(PACBREW_LIB) -lcurl -lpsl -lssl -lcrypto -lzstd -lz -ldl -pthread
 
 PKG        := $(OUT)/$(TITLE_ID)
 AGENT      := $(OUT)/harness.elf

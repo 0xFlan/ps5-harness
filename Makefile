@@ -25,8 +25,34 @@ else
 PLATFORM_LIBS := -lcurl $(OPENSSL_LIBS)
 endif
 
-LIB_SRC := $(filter-out src/main.cpp,$(wildcard src/*.cpp))
+# The local-model runtime is llama.cpp linked into this binary. It is kept out
+# of the unit-test objects (which do not need a 500 MiB model or its server).
+LLAMA_HOST ?= $(abspath .deps/llama-host)
+ifeq ($(UNAME_S),Linux)
+LLAMA_FRAMEWORKS :=
+else
+LLAMA_FRAMEWORKS := -framework Accelerate -framework Foundation -framework Metal -framework MetalKit -framework CoreFoundation -framework Security
+endif
+LLAMA_LIBS := \
+  $(LLAMA_HOST)/tools/server/libllama-server-impl.a \
+  $(LLAMA_HOST)/tools/server/libserver-context.a \
+  $(LLAMA_HOST)/common/libllama-common.a \
+  $(LLAMA_HOST)/common/libllama-common-base.a \
+  $(LLAMA_HOST)/tools/mtmd/libmtmd.a \
+  $(LLAMA_HOST)/src/libllama.a \
+  $(LLAMA_HOST)/ggml/src/libggml.a \
+  $(LLAMA_HOST)/ggml/src/libggml-cpu.a \
+  $(LLAMA_HOST)/ggml/src/ggml-blas/libggml-blas.a \
+  $(LLAMA_HOST)/ggml/src/ggml-metal/libggml-metal.a \
+  $(LLAMA_HOST)/ggml/src/libggml-base.a \
+  $(LLAMA_HOST)/vendor/hash/libvendor-hash.a \
+  $(LLAMA_HOST)/tools/ui/libllama-ui.a \
+  $(LLAMA_HOST)/vendor/cpp-httplib/libcpp-httplib.a \
+  -lm $(LLAMA_FRAMEWORKS)
+
+LIB_SRC := $(filter-out src/main.cpp src/local_model.cpp,$(wildcard src/*.cpp))
 LIB_OBJ := $(patsubst src/%.cpp,build/%.o,$(LIB_SRC))
+LOCAL_MODEL_OBJ := build/local_model.o
 
 all: build/harness
 
@@ -36,8 +62,8 @@ build:
 build/%.o: src/%.cpp | build
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build/harness: $(LIB_OBJ) build/main.o
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+build/harness: $(LIB_OBJ) $(LOCAL_MODEL_OBJ) build/main.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LLAMA_LIBS) $(PLATFORM_LIBS)
 
 build/core_test.o: tests/core_test.cpp | build
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -99,13 +125,19 @@ build/power_tools_test.o: tests/power_tools_test.cpp | build
 build/power_tools_test: $(LIB_OBJ) build/power_tools_test.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
 
+build/console_ui_test.o: tests/console_ui_test.cpp | build
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/console_ui_test: $(LIB_OBJ) build/console_ui_test.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(PLATFORM_LIBS)
+
 # server_test needs the network-gate test hook in server.cpp. Compile a
 # separate test object so the production listener remains free of test code.
 SERVER_TEST_DEFS := -DPS5H_TEST_HOOKS
 LIB_OBJ_NO_SERVER := $(filter-out build/server.o,$(LIB_OBJ))
 
 build/server_test.o: tests/server_test.cpp | build
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(SERVER_TEST_DEFS) -c $< -o $@
 
 build/server_test_server.o: src/server.cpp | build
 	$(CXX) $(CXXFLAGS) $(SERVER_TEST_DEFS) -c $< -o $@
@@ -123,8 +155,8 @@ build/home_tile_test: $(LIB_OBJ) build/home_tile_test.o
 # exists in builds defining PS5H_TEST_HOOKS. Production targets never set it.
 E2E_DEFS := -DPS5H_TEST_HOOKS
 
-build/harness_e2e: $(LIB_SRC) src/main.cpp | build
-	$(CXX) $(CXXFLAGS) $(E2E_DEFS) $^ -o $@ $(PLATFORM_LIBS)
+build/harness_e2e: $(LIB_SRC) src/local_model.cpp src/main.cpp | build
+	$(CXX) $(CXXFLAGS) $(E2E_DEFS) $^ -o $@ $(LLAMA_LIBS) $(PLATFORM_LIBS)
 
 build/e2e_agent_test: tests/e2e_agent_test.cpp $(LIB_SRC) | build
 	$(CXX) $(CXXFLAGS) $(E2E_DEFS) $^ -o $@ $(PLATFORM_LIBS)
@@ -152,7 +184,14 @@ release:
 	$(MAKE) -C platform/ps5 package
 	python3 tools/make_release.py
 
-test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/server_test build/home_tile_test build/e2e_agent_test build/ps5_package_test
+# Build one zip that also contains the on-console GGUF. Set LOCAL_MODEL to the
+# downloaded Qwen3.5-0.8B-Q4_K_M.gguf path.
+LOCAL_MODEL ?= $(HOME)/Downloads/Qwen3.5-0.8B-Q4_K_M.gguf
+local-kit:
+	$(MAKE) -C platform/ps5 package
+	python3 tools/make_release.py --model "$(LOCAL_MODEL)"
+
+test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/console_ui_test build/server_test build/home_tile_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
 	./build/resources_test
@@ -164,6 +203,7 @@ test: build/harness build/harness_e2e build/policy_surface_test build/core_test 
 	./build/mission_test
 	./build/session_test
 	./build/power_tools_test
+	./build/console_ui_test
 	./build/server_test
 	./build/home_tile_test
 	@$(MAKE) reconnect-test
@@ -273,4 +313,4 @@ endif
 clean:
 	rm -rf build examples/plugins/hello/hello.so
 
-.PHONY: all test release reconnect-test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean
+.PHONY: all test release local-kit reconnect-test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean

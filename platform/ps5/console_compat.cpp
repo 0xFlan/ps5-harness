@@ -72,6 +72,31 @@ extern "C" const char* ps5h_console_ca_bundle() {
   return nullptr;
 }
 
+// The SDK headers declare accept4 (FreeBSD 10), but libkernel only exports
+// accept. cpp-httplib's server loop calls accept4(..., SOCK_CLOEXEC).
+extern "C" int accept4(int s, struct sockaddr* __restrict addr,
+                       socklen_t* __restrict addrlen, int flags) {
+  const int fd = ::accept(s, addr, addrlen);
+  if (fd < 0) return fd;
+  if ((flags & SOCK_CLOEXEC) != 0 &&
+      ::fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+    const int saved = errno;
+    ::close(fd);
+    errno = saved;
+    return -1;
+  }
+  if ((flags & SOCK_NONBLOCK) != 0) {
+    const int current = ::fcntl(fd, F_GETFL);
+    if (current == -1 || ::fcntl(fd, F_SETFL, current | O_NONBLOCK) == -1) {
+      const int saved = errno;
+      ::close(fd);
+      errno = saved;
+      return -1;
+    }
+  }
+  return fd;
+}
+
 extern "C" int __wrap_fcntl(int fd, int cmd, ...) {
   va_list arguments;
   va_start(arguments, cmd);

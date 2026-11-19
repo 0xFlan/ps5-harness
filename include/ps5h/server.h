@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -9,6 +10,8 @@
 #include "ps5h/session.h"
 
 namespace ps5h {
+
+class ConsoleUi;
 
 // Shared with the agent's log callback so the browser can poll live activity
 // while a turn is running.
@@ -34,6 +37,8 @@ struct ServerOptions {
   std::string session_path;
   std::string build_id;
   std::string model;
+  // Runtime model/endpoint changes use the same URL policy as model turns.
+  UrlPolicy policy;
   std::string tls_cert;
   std::string tls_key;
   bool plan_mode = false;
@@ -42,6 +47,9 @@ struct ServerOptions {
   // home-screen tile. It is empty in tests that do not need a network client.
   HttpFn http;
   HomeTileConfig home_tile;
+  // The agent's own screen, shared with the screen_* tools. When it is null the
+  // server has no console surface to drive.
+  std::shared_ptr<ConsoleUi> ui;
 };
 
 // Serves the embedded single-page harness UI and its small JSON API. Blocks

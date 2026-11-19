@@ -1,0 +1,50 @@
+{
+  "name": "panel-tour",
+  "steps": [
+    {
+      "note": "A flow is a check, not a wish: it stops at the first mismatch."
+    },
+    {
+      "expect_panel": "activity"
+    },
+    {
+      "press": "r1"
+    },
+    {
+      "expect_panel": "tools"
+    },
+    {
+      "expect_text": "Tool catalogue"
+    },
+    {
+      "press": "down"
+    },
+    {
+      "expect_focus": "tools:list"
+    },
+    {
+      "press": "r1"
+    },
+    {
+      "expect_text": "Apply to next turn"
+    },
+    {
+      "focus": "model:id"
+    },
+    {
+      "type": "example-model"
+    },
+    {
+      "expect_text": "example-model"
+    },
+    {
+      "press": "circle"
+    },
+    {
+      "expect_panel": "chat"
+    },
+    {
+      "shot": true
+    }
+  ]
+}

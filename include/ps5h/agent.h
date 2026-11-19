@@ -13,6 +13,14 @@ namespace ps5h {
 struct ModelConfig {
   std::string base_url = "https://api.openai.com/v1";
   std::string model = "gpt-4o-mini";
+  // The local model mode starts llama.cpp inside this process. It is
+  // loopback-only, cleartext-only and sends no Authorization header. The
+  // default remains a remote HTTPS provider; this is an explicit opt-in.
+  bool local_model = false;
+  std::string local_model_path;
+  int local_model_port = 18081;
+  int local_model_threads = 4;
+  int local_model_context = 4096;
   std::string api_key_env = "PS5H_API_KEY";
   // Optional console-friendly fallback for a loader that cannot set env vars.
   // The key itself is never stored in the config; this is only a path.
@@ -58,6 +66,13 @@ class Agent {
   std::string summarize(const std::string& transcript);
   int workers() const { return executor_.workers(); }
 
+  // The browser server changes the provider between turns. These accessors are
+  // not independently synchronized; callers must serialize an update with
+  // run/run_messages (the server holds its chat mutex for both).
+  ModelConfig model_config() const { return config_; }
+  void set_model_config(const ModelConfig& config) { config_ = config; }
+  void set_api_key_override(const std::string& key);
+
  private:
   Json completion(const Json& messages, AgentRunStats* stats,
                   bool include_tools = true);
@@ -72,6 +87,7 @@ class Agent {
   SecretSet secrets_;
   RuntimeBudget budget_;
   ToolExecutor executor_;
+  std::string api_key_override_;
 };
 
 }  // namespace ps5h

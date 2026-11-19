@@ -1266,6 +1266,52 @@ void test_parallel_tool_calls_follow_budget() {
   }
 }
 
+// Local model mode is narrow: it accepts a cleartext loopback /v1 endpoint
+// without the test-only policy, never calls the key lookup, and never sends
+// Authorization. Flipping it off restores the strict default policy.
+void test_local_model_no_key() {
+  StubProvider stub({Reply{final_reply("local answer")}});
+  ToolRegistry registry;
+  ModelConfig config;
+  config.local_model = true;
+  config.base_url = stub.base_url() + "/v1";
+  config.model = "qwen3.5-0.8b";
+  std::atomic<int> key_lookups{0};
+  EnvFn env = [&key_lookups](const std::string&) -> std::string {
+    ++key_lookups;
+    return "must-not-be-used";
+  };
+  std::string log_text;
+  LogFn log = [&log_text](const std::string& message) {
+    log_text += message + "\n";
+  };
+  RuntimeBudget budget;
+  budget.workers = 1;
+  Agent agent(config, make_http_client(), registry, env, log, log,
+              UrlPolicy{}, SecretSet{}, budget);
+  AgentOptions options;
+  options.max_steps = 2;
+  options.system_prompt = "local test";
+
+  const bool first_ok = agent.run("hello", options);
+  if (!first_ok) {
+    std::fprintf(stderr, "local model run failed:\n%s\n", log_text.c_str());
+  }
+  assert(first_ok);
+  assert(key_lookups.load() == 0);
+  assert(stub.wait_for_requests(1, 5000));
+  const Recorded request = stub.request(0);
+  assert(request.target.find("/v1/chat/completions") != std::string::npos);
+  assert(request.headers.count("authorization") == 0);
+
+  // The local flag is not a general cleartext/private-network bypass: turning
+  // it off makes the same endpoint fail the ordinary production policy.
+  config.local_model = false;
+  agent.set_model_config(config);
+  assert(!agent.run("hello again", options));
+  assert(stub.request_count() == 1);
+}
+
 // The shipped binary has no hook at all: no cleartext endpoint, no hidden flag.
 void test_production_binary_has_no_bypass() {
   StubProvider stub({Reply{"{}"}});
@@ -1321,6 +1367,8 @@ int main() {
   test_deadline_returns_without_blocking();
   std::printf("parallel tool calls...\n");
   test_parallel_tool_calls_follow_budget();
+  std::printf("local model no key...\n");
+  test_local_model_no_key();
   std::printf("production binary...\n");
   test_production_binary_has_no_bypass();
 

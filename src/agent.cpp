@@ -20,6 +20,13 @@ Agent::Agent(ModelConfig config, HttpFn http, ToolRegistry& registry, EnvFn env,
       budget_(budget),
       executor_(budget.workers) {}
 
+void Agent::set_api_key_override(const std::string& key) {
+  api_key_override_ = key;
+  if (!key.empty()) {
+    secrets_.add(key);
+  }
+}
+
 Json Agent::completion(const Json& messages, AgentRunStats* stats,
                        bool include_tools) {
   if (!http_) {
@@ -50,20 +57,36 @@ Json Agent::completion(const Json& messages, AgentRunStats* stats,
   }
   request.url += "/chat/completions";
 
-  // The provider endpoint is where the API key travels, so it is subject to the
-  // same policy as everything else: no cleartext, no private ranges.
-  const UrlPolicy::Decision endpoint = policy_.check(request.url);
-  if (!endpoint.allowed) {
-    log_("model endpoint rejected by URL policy: " + endpoint.reason);
-    return Json();
+  // A local model runs in this process. It is deliberately a separate path
+  // from the provider policy: it may be cleartext loopback, but only with an
+  // explicit port and the /v1 base path, and it never receives a key.
+  if (config_.local_model) {
+    std::string reason;
+    if (!local_model_endpoint(request.url, &reason)) {
+      log_("local model endpoint rejected: " + reason);
+      return Json();
+    }
+  } else {
+    // The provider endpoint is where the API key travels, so it is subject to
+    // the same policy as everything else: no cleartext, no private ranges.
+    const UrlPolicy::Decision endpoint = policy_.check(request.url);
+    if (!endpoint.allowed) {
+      log_("model endpoint rejected by URL policy: " + endpoint.reason);
+      return Json();
+    }
+    request.resolved_ip = endpoint.resolved_ip;
   }
-  request.resolved_ip = endpoint.resolved_ip;
   request.max_body_bytes = budget_.buffered_response_bytes;
 
   request.headers.emplace_back("Content-Type", "application/json");
 
-  if (env_) {
-    std::string key = env_(config_.api_key_env);
+  if (!config_.local_model) {
+    // A runtime key-file selection wins over the startup env/file fallback; an
+    // empty override means the current environment variable remains in use.
+    std::string key = api_key_override_;
+    if (key.empty() && env_) {
+      key = env_(config_.api_key_env);
+    }
     if (!key.empty()) {
       request.headers.emplace_back("Authorization", "Bearer " + key);
     }
@@ -93,6 +116,15 @@ Json Agent::completion(const Json& messages, AgentRunStats* stats,
   if (!message.is_object()) {
     log_("model response had no choices[0].message");
     return Json();
+  }
+  // The response model is the provider's confirmation of what served the
+  // request. It is useful when the browser changed the model or endpoint at
+  // runtime and a turn must be attributed to the selected provider.
+  const Json& served_model = parsed["model"];
+  if (served_model.is_string() && !served_model.as_string().empty()) {
+    log_("provider served model " + served_model.as_string());
+  } else {
+    log_("provider response did not name a model");
   }
   if (stats != nullptr) {
     const Json& usage = parsed["usage"];

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -77,11 +78,12 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_bundle(package: Path, output_root: Path) -> tuple[Path, Path]:
+def build_bundle(package: Path, output_root: Path, model=None) -> tuple[Path, Path]:
     title_id = read_title_id()
     version = read_version()
     commit = read_commit()
-    bundle_name = f"ps5-harness-{version}-{commit}"
+    suffix = "-local" if model is not None else ""
+    bundle_name = f"ps5-harness-{version}-{commit}{suffix}"
     staging = output_root / bundle_name
 
     required = [
@@ -108,6 +110,13 @@ def build_bundle(package: Path, output_root: Path) -> tuple[Path, Path]:
     copy_file(ROOT / "LICENSE", staging / "LICENSE")
     copy_file(ROOT / "config.example.json", staging / "config.example.json")
     copy_file(ROOT / "config.console.json", staging / "config.console.json")
+    copy_file(
+        ROOT / "config.console-local.json",
+        staging / "config.console-local.json",
+    )
+    copy_file(
+        ROOT / "docs/LOCAL-MODEL.md", staging / "docs/LOCAL-MODEL.md"
+    )
     copy_file(ROOT / "THIRD-PARTY-NOTICES.md", staging / "THIRD-PARTY-NOTICES.md")
     copy_tree(ROOT / "licenses", staging / "licenses")
     copy_tree(ROOT / "examples", staging / "examples")
@@ -117,6 +126,24 @@ def build_bundle(package: Path, output_root: Path) -> tuple[Path, Path]:
         copy_file(ROOT / "docs" / name, staging / "docs" / name)
     copy_file(ROOT / "tools/ps5h-discover.py", staging / "tools/ps5h-discover.py")
 
+    model_info = "local_model=not-included\n"
+    if model is not None:
+        model_destination = staging / title_id / "models" / model.name
+        copy_file(model, model_destination)
+        model_info = (
+            f"local_model={model.name}\n"
+            f"local_model_sha256={sha256_file(model_destination)}\n"
+        )
+        local_config = json.loads(
+            (ROOT / "config.console-local.json").read_text(encoding="utf-8")
+        )
+        local_config["model"]["local_model_path"] = (
+            f"/data/homebrew/{title_id}/models/{model.name}"
+        )
+        (staging / "config.console-local.json").write_text(
+            json.dumps(local_config, indent=2) + "\n", encoding="utf-8"
+        )
+
     build_info = (
         "PS5 Harness self-hosted release\n"
         f"version={version}\n"
@@ -124,6 +151,7 @@ def build_bundle(package: Path, output_root: Path) -> tuple[Path, Path]:
         f"title_id={title_id}\n"
         "server=local-only\n"
         "authors_server=none\n"
+        f"{model_info}"
         f"built_utc={datetime.now(timezone.utc).isoformat()}\n"
     )
     (staging / "BUILD-INFO.txt").write_text(build_info, encoding="utf-8")
@@ -167,6 +195,12 @@ def main() -> int:
         default=DEFAULT_OUT,
         help="release output directory (default: dist)",
     )
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=None,
+        help="optional GGUF to include in a -local kit zip",
+    )
     args = parser.parse_args()
 
     package = args.package
@@ -181,8 +215,11 @@ def main() -> int:
             "`make -C platform/ps5 package` first"
         )
 
+    if args.model is not None and not args.model.is_file():
+        return fail(f"model file not found: {args.model}")
+
     try:
-        zip_path, sha_path = build_bundle(package, args.out)
+        zip_path, sha_path = build_bundle(package, args.out, args.model)
     except (OSError, ValueError) as error:
         return fail(str(error))
 

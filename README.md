@@ -1,338 +1,599 @@
-# ps5-harness
+# PS5 Harness
 
 [github.com/0xFlan/ps5-harness](https://github.com/0xFlan/ps5-harness) · MIT
 
-An agent harness for a jailbroken PS5, in the shape of a desktop harness (a
-Hermes-style loop over an OpenAI-compatible model) but with a native console
-tool surface and two ways for other people to extend it.
+PS5 Harness is a local agent for a jailbroken PlayStation 5. It can run a small
+model inside its own process on the console, with no cloud key and no second
+app. You can also choose any OpenAI-compatible model and endpoint (a service
+that accepts OpenAI-style chat requests). The model can inspect files, use
+guarded local tools, load skills (folders of instructions), and send bounded
+work to other agents. The harness runs on the console or on a host. It has no
+project-operated backend.
 
-The loop is the boring part. The point is the extension contract:
+Use this software only on a console that you own or have written permission to
+test. The example below uses a read-only demonstration root (a folder the agent
+can inspect but cannot change).
 
-- **Endpoint manifests** — add an HTTP API with a JSON file, no compiled code.
-- **Plugins** — a shared object exporting a stable C ABI, for anything a
-  manifest can't express (pagination, auth flows, binary downloads).
+## Main example
 
-The harness also carries a local recon surface (`env_info`, `fs_tree`,
-`file_info`, `fs_strings`), guarded write and process-inspection tools, a
-read-only `--plan` mode, bounded `delegate`/`swarm` agents and JSON missions.
-Six clean-room skill packs are compiled in, so a fresh console has
-reverse-engineering and local-architecture methodology without staging
-anything first. `--serve` adds an optional LAN browser workspace with a chat
-transcript, live tool/activity panel, tool catalogue, persistent sessions and
-model-assisted context compaction.
+The figure below is a prepared evidence figure. It combines six crops from two
+real screenshots: a host transcript and a console Model-panel screenshot. The
+two screenshots are separate sessions. It is not one continuous screenshot.
 
-```
-        ┌───────────────────────────────────────────┐
-        │ agent loop (src/agent.cpp)                │
-        │  messages → model → tool_calls → results   │
-        │  redaction + per-tool deadline            │
-        └───────────────┬───────────────────────────┘
-                        │ ToolRegistry
-        ┌───────────────┴───────────┬───────────────┐
-        │ builtin tools (src/main)  │               │
-        │ fs_list/read/write/edit,  │               │
-        │ fs_mkdir/move/delete,     │               │
-        │ fs_search, hexdump,       │               │
-        │ http_get, download, skill │               │
-        │ env_info, fs_tree,        │               │
-        │ file_info, fs_strings,    │               │
-        │ sysctl, delegate, swarm   │               │
-        ├───────────────────────────┤               │
-        │ endpoint manifests        │  plugins      │
-        │ (src/endpoints.cpp)       │ (src/plugins) │
-        │ JSON → tools, no code     │ dlopen + C ABI│
-        └───────────────────────────┴───────────────┘
-```
+- The top crop is the host request. The user asks the model to load the
+  `local-architect` skill and start a two-lane swarm (two child agents running
+  together). The swarm should look for ways to carry out a penetration test
+  (pen test) of the console. It should also find possible exploit surfaces
+  (places where a security weakness might be found).
+- A detail strip repeats the key request in three larger crops. It uses the
+  same prompt, not a second message.
+- The console Model panel crop shows the selected model ID
+  `deepseek-v4-1-flash-uncensored`.
+- The bottom crop is the host Activity log. It shows tool calls (calls to
+  built-in functions): `tool env_info`, `tool skill`, `tool swarm`, `swarm start`,
+  and two `delegate` calls. A `delegate` call hands work to a child agent.
 
-## Build and run (host)
+The request asks for a read-only run and says not to execute anything.
 
-The core has no PS5 dependencies, so it builds and tests on macOS/Linux:
+![Prepared Figure 1: six crops from two real screenshots. A host prompt and three larger key-request detail crops; a console Model panel showing deepseek-v4-1-flash-uncensored; and a host Activity log with tool env_info, tool skill, tool swarm, swarm start, and delegate calls. Two separate screenshots, not one session.](docs/ui-swarm-example-deepseek.png)
+
+*Figure 1. Prepared evidence figure. It combines six crops from two real
+screenshots. Four come from a host transcript: the prompt and three larger
+detail crops. One is a crop of the console Model panel. One is the host
+Activity-log crop. The two screenshots are separate sessions, not one
+continuous screenshot. The top
+crop shows the user's request: load `local-architect`, start a two-lane swarm,
+look for ways to pen-test the PS5, and find possible exploit surfaces. The
+three detail crops repeat the key words at a larger size so they stay readable
+at mobile width. The console Model-panel crop shows the model ID
+`deepseek-v4-1-flash-uncensored`. The bottom crop shows the host Activity log
+with `tool env_info`, `tool skill`, `tool swarm`, `swarm start`, and two
+`delegate` calls. The request asks for a read-only run and says not to execute
+anything. The labels and borders are annotations, not host UI. The host
+transcript and the console panel are separate screenshots; Figures 2 and 3
+show the console UI.*
+
+In the figure, look for these pieces of evidence:
+
+- `tool skill {"name":"local-architect"}` appears before the swarm starts.
+- `tool swarm` receives two named lanes, and `swarm start` reports width 2.
+- `tool env_info` is a tool call. The two `delegate` calls are tool calls too.
+- The model ID `deepseek-v4-1-flash-uncensored` appears in the middle crop.
+
+Plain-language note: this README follows the principles of ISO 24495-1. It
+puts the reader first, uses short sentences and common words, and defines
+technical terms on first use.
+
+## Who this is for
+
+- PlayStation 5 owners who run homebrew on a console they control.
+- Security researchers who test a console with written permission.
+- Developers who add tools, endpoints, plugins, skills, or agent profiles.
+
+## Contents
+
+- [Main example](#main-example)
+- [What you can do](#what-you-can-do)
+- [Terms used in this README](#terms-used-in-this-readme)
+- [Quick start on a host](#quick-start-on-a-host)
+- [Run the model on the console (no key)](#run-the-model-on-the-console-no-key)
+- [Choose a model and endpoint](#choose-a-model-and-endpoint)
+- [Start the browser workspace](#start-the-browser-workspace)
+- [Run on a PS5](#run-on-a-ps5)
+- [Tools](#tools)
+- [Skills](#skills)
+- [Delegation, swarms, and missions](#delegation-swarms-and-missions)
+- [Safety rules](#safety-rules)
+- [Configuration reference](#configuration-reference)
+- [Build, test, and release](#build-test-and-release)
+- [Verification](#verification)
+- [Known limits](#known-limits)
+- [More documentation](#more-documentation)
+
+## What you can do
+
+- **Run without a cloud key.** Start the built-in llama.cpp model on the
+  console. The GGUF and the model runtime are both local; no PS5LM and no key
+  are needed. See
+  [Run the model on the console](#run-the-model-on-the-console-no-key).
+- **Choose a cloud model at runtime.** Open the Model panel and change the
+  provider (the service that hosts the model), base URL, model ID, key source,
+  temperature, or token limit. Changes apply to the next top-level turn without
+  restarting the harness.
+- **Inspect the local system.** Read directories, search files, identify
+  binaries, inspect headers, read strings, and print a bounded environment
+  report.
+- **Use local skills.** A skill is a folder of instructions. The model can list
+  skills, load one by name, and read a bundled resource. A skill cannot widen
+  the configured roots, network policy, secrets, or delegation limits (limits
+  on work a parent can hand to a child agent).
+- **Delegate and run swarms.** A delegated child gets the parent's tool
+  registry, roots, network policy, and shared budget (a shared limit on steps
+  and tokens). A swarm runs up to eight child tasks in parallel and preserves
+  their order.
+- **Run a mission.** A mission is a bounded JSON sequence of single-agent steps
+  or swarms. It stops at the first failed step.
+- **Use the browser workspace.** The harness serves a token-protected page with
+  a chat transcript, live activity, a tool catalogue, a model picker, and
+  session history. The page loads no content delivery network, web font, or
+  other external file.
+
+## Terms used in this README
+
+| Term | Meaning |
+|---|---|
+| Harness | The local program that connects a model to tools and a workspace. |
+| Runtime | The running harness process. |
+| Model | The remote or local language model that produces text and tool calls. |
+| Provider | The service that hosts the model endpoint. |
+| Capture | A screenshot of the running user interface. |
+| Endpoint | The HTTPS base URL that accepts OpenAI-compatible chat requests. |
+| Tool | A function that the model can call, such as `fs_read` or `env_info`. |
+| Skill | A folder of instructions and optional files that the model can load. |
+| Read-only | A run that can inspect data but cannot change files. |
+| Budget | The maximum number of steps and tokens a run may use. |
+| Penetration test (pen test) | An authorized review that looks for security weaknesses in a system. |
+| Exploit surface | A place where a security weakness might be found or used. |
+| Swarm | A group of child agents that run at the same time under one budget. |
+| Delegation | A parent agent giving a task to a child agent. |
+| Reconnaissance (recon) | A read-only look at a system to learn its layout and possible weak points. |
+| Mission | A JSON file that lists steps and swarms in a fixed order. |
+| Root | A directory that the path guard allows for reads or writes. |
+| Key source | An environment variable name or a local file path. The harness reads the key from that source. The page does not receive the key value. |
+| Token | A random password that protects the browser API. |
+| Manifest | A JSON file that describes an HTTP API and its operations. |
+| Plugin | Compiled code that adds a tool to the harness process. |
+
+## Quick start on a host
+
+The core has no PS5 build dependency. It builds on macOS and Linux.
+
+Requirements:
+
+- A C++20 compiler and `make`.
+- libcurl and OpenSSL development files.
+- A POSIX shell.
+
+Build and test:
 
 ```bash
-make                # build/harness
-make test           # policy, core, resources, runtime, hardening, agents, skills, recon, missions, session, tools, server, browser reconnect, package and e2e
-make fuzz-run       # ASan/UBSan: JSON, manifest, recon and mission fuzzers, 20k iterations each
-make sanitize-test  # recon and mission host tests under ASan/UBSan
-make leaks-check    # macOS system leak check on the plain recon/mission fuzz drivers
-make plugin-example # build the example plugin
-make tools          # list built-in + manifest tools
-./build/harness --resources   # CPUs, memory, rlimits and mount space
+make                  # build/harness
+make test             # run the host test suite
+make fuzz-run         # sanitizer fuzz runs, 20,000 iterations each
+make sanitize-test    # sanitizer runs for recon and mission tests
+make plugin-example   # build the example plugin
+make tools            # list built-in and manifest tools
+./build/harness --resources
 ```
 
-Start the browser workspace (the token is printed once; the page itself is
-served without it so it can render the login prompt):
+Start the workspace:
 
 ```bash
 ./build/harness --config config.example.json --serve 8787
-# open http://<console-or-host-ip>:8787/?token=<printed-token>
-# 8787 is an example; use the same free port in --serve and the URL.
+# Open the URL printed by the harness.
+# The command line prints the token once.
 ```
 
-`--serve-token <16+ chars>` fixes the token, `--session <path>` overrides the
-session file (default: `<first write root>/ps5h-session.json`), and
-`--context-chars <n>` sets the transcript budget (default 120000 characters,
-minimum 4096). The UI is an opt-in mode; without `--serve` the binary still
-does one turn and exits.
+Do not expose the LAN listener to the internet. The token is the only
+credential. Anyone who has the token can use the tools that the process can
+reach.
 
-### Self-hosted release
+Useful flags:
 
-The harness has no project-operated backend. Users run the console payload and
-open its LAN workspace themselves; discovery, the page and the API are all
-served by that process. Build a self-contained user bundle with:
-
-```bash
-make release
-# dist/ps5-harness-<version>-<commit>.zip and .zip.sha256
-```
-
-The bundle contains the validated `PHAR00001/` package, `harness.elf`, the
-local discovery helper, examples, a console-ready config, third-party licence
-notices with full texts under `licenses/`, and `START-HERE.md` with
-the local-network launch sequence. It deliberately excludes `.deps`, build
-outputs, configs, secrets and internal console reports. Verify the bundle with
-`SHA256SUMS`; do not expose the LAN listener to the internet. The release build
-needs the pinned payload SDK/PacBrew and LLVM toolchain described in
-[`platform/ps5/BUILD.md`](platform/ps5/BUILD.md). See
-[`docs/RELEASE.md`](docs/RELEASE.md).
-
-Talk to a model (the key comes from the environment or a one-line key file;
-the config contains only the environment name or file path, never the secret):
-
-```bash
-export PS5H_API_KEY=...
-./build/harness --config config.example.json "what is in examples/endpoints?"
-
-# Or, when the launcher cannot set environment variables:
-./build/harness --config config.example.json \
-  --api-key-file /data/ps5h-secrets/api-key "what is in examples/endpoints?"
-```
-
-Explicit flags win over the config file (`--base-url`, `--model` and
-`--api-key-file` are not overwritten by `model.*` in the config).
-
-Test one tool without spending tokens:
-
-```bash
-./build/harness --endpoints examples/endpoints \
-  --call ep_archive_search --args '{"query":"collection:classicpcgames","rows":"2"}'
-```
-
-## Security model
-
-These are enforced in code, not by convention. `docs/SECURITY.md` is the full
-model; `docs/AUDIT.md` records the defects that produced each rule.
-
-| Rule | Where |
+| Flag | Effect |
 |---|---|
-| Paths canonicalised (`realpath`), symlinks resolved, `..` rejected, boundary checked with a separator | `src/paths.cpp` |
-| Reads and writes confined to configured roots; config, credentials and state denied by name | `src/paths.cpp`, `src/main.cpp` |
-| Skills are read-only text packs; built-ins are compiled in and disk packs override by name; resource paths are canonicalised and confined to the skill directory | `src/skills.cpp`, `src/builtin_skills.cpp` |
-| Plan mode removes every mutating tool from the registry, including endpoint and plugin tools | `src/main.cpp` |
-| Recon tools are read-only, bounded, path-guarded and deny secret-named paths; `env_info` hides other titles' sandbox mounts | `src/recon.cpp` |
-| Swarms and missions reuse the delegation depth, shared budget and child-registry rules | `src/delegation.cpp`, `src/mission.cpp` |
-| Every tool result scrubbed of known secret values before it enters the message array | `src/secrets.cpp`, `src/agent.cpp` |
-| Manifests are https-only, host-policied, private/loopback ranges denied, DNS re-checked and pinned | `src/policy.cpp`, `src/http.cpp` |
-| Buffered responses capped at 4 MB; downloads stream to disk with Range resume and sha256 | `src/http.cpp` |
-| Every tool call has a deadline (30 s default, per-tool override) | `src/core.cpp` |
-| Plugin results go into a **host-owned** buffer — nothing is freed across the ABI | `include/ps5h/plugin_api.h` |
-| The model endpoint is policy-checked too — the API key never travels over cleartext or to a private address | `src/agent.cpp` |
-| Browser listener is off unless `--serve` is explicit; every `/api/*` call requires the bearer token; one turn runs at a time; no cookies, CORS or wildcard origins | `src/server.cpp` |
-| Public discovery exposes only service/build/title/ports/addresses; the token, session and tool data stay authenticated. UDP discovery can be disabled with `--discovery-port 0` | `src/server.cpp`, `tools/ps5h-discover.py` |
-| Session files stay under the write roots and are rejected if their names look secret-bearing | `src/main.cpp`, `src/paths.cpp` |
+| `--serve-token <token>` | Sets a fixed token of at least 16 characters. Use this for a stable setup. |
+| `--session <path>` | Changes the saved-session path. The path must be under the first write root and must not look secret-bearing. |
+| `--context-chars <n>` | Sets the transcript budget. The default is 120000 characters; the minimum is 4096. |
+| `--discovery-port <n>` | Sets UDP discovery. Use `0` to disable it. |
+| `--plan` | Removes mutating tools and makes the run read-only. |
+| `--agent <name>` | Uses a local agent profile for the turn. |
+| `--agents <dir>` | Sets the profile directory. |
+| `--skills <dir>` | Sets the skills directory. |
+| `--ui-shot` | Prints one console-driver frame and exits. |
+| `--ui-flow <file>` | Runs a bounded console-driver flow file and exits. |
 
-`fs_write`, `fs_edit` and `download` refuse any path outside `allowed_roots`.
-`skill` refuses a name or resource outside the skills directory. Nothing
-disables TLS verification; there is no debug flag that does.
+## Run the model on the console (no key)
 
-Built-in skills are source text compiled into the binary, not downloaded
-content. The `astrik`, `artex`, `strix` and `cyber-strike-ai` packs are
-clean-room methodology cards, not the upstream projects: they contain no
-third-party code, binaries, scripts or network endpoints, and they cannot
-certify an external ARTEX tree. Treat those names as a description of the
-workflow, not as provenance for code that is not in this repository.
+The harness can run the language model inside its own process on the PS5. You do
+not need a cloud API key, a phone, a laptop, a second app, or PS5LM. The GGUF
+model file and the harness both run on the console.
 
-### Testing the provider round trip
+This is the shortest supported path. You still use a laptop or phone for the
+one-time file transfer and for the browser page; the model itself does not use
+them.
 
-The end-to-end test needs a cleartext loopback stub, which the production policy
-correctly refuses. The escape hatch is **compile-time only**: `UrlPolicy`'s
-`test_allow_loopback_cleartext` field and `--test-allow-loopback-cleartext` flag
-exist only in builds defining `PS5H_TEST_HOOKS` (the test targets), they permit
-loopback cleartext and nothing else, and no config file can reach them.
-`tests/policy_surface_test.cpp` fails to compile if the field ever appears in a
-production build, and the e2e suite proves the shipped binary rejects both the
-cleartext endpoint and the flag.
+### What you need
 
-## Adding an API: endpoint manifests
+1. A jailbroken PS5 with `elfldr` listening on port 9021.
+2. The harness release bundle. Build it with `make release`, or use the
+   `-local.zip` kit described below. The bundle contains `PHAR00001/`.
+3. One model file: `Qwen3.5-0.8B-Q4_K_M.gguf` (about 532 MB).
 
-Drop a `.json` file in the endpoints directory. Every operation becomes a tool
-named `ep_<id>_<operation>`:
+Download the model directly:
+
+- [Qwen3.5-0.8B-Q4_K_M.gguf (Hugging Face, 532 MB)](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf?download=true)
+- [Model card and other quantisations](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF)
+
+Read the model card for its licence before you redistribute the file.
+
+To make one zip that already contains the harness, the local config and the
+model, run:
+
+```bash
+make local-kit LOCAL_MODEL=/path/to/Qwen3.5-0.8B-Q4_K_M.gguf
+# dist/ps5-harness-<version>-<commit>-local.zip
+# dist/ps5-harness-<version>-<commit>-local.zip.sha256
+```
+
+### Copy the files
+
+Unzip the bundle. You need the whole `PHAR00001` folder and
+`config.console-local.json`.
+
+On the console, create this layout:
+
+```text
+/data/homebrew/PHAR00001/harness.elf
+/data/homebrew/PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf
+/data/ps5h-local.json
+```
+
+`config.console-local.json` is the last file. Rename it to `ps5h-local.json`
+when you copy it. Its model path is already
+`/data/homebrew/PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf`.
+
+A web file manager such as the one often running on port 8888 can copy the
+files. Keep the model file name and folder exactly as shown. If you put the
+model somewhere else, change `local_model_path` in `ps5h-local.json` to the
+real path.
+
+### Start the harness
+
+The launch command passes the config path to the payload. Replace the console
+address and the token. Use a token of at least 16 characters.
+
+```bash
+printf 'file:/data/homebrew/PHAR00001/harness.elf?args=--config%%20/data/ps5h-local.json%%20--serve%%208787%%20--serve-token%%20<your-long-token>%%20--session%%20/data/homebrew/ps5h-chat.json\n' \
+  | nc -w 60 <console-ip> 9021
+```
+
+Wait until the console log says:
+
+```text
+[local] model bytes 532517120
+[harness] local model ready: /data/homebrew/PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf on port 18081
+[harness] browser UI listening on 0.0.0.0:8787
+```
+
+Then open:
+
+```text
+http://<console-ip>:8787/?token=<your-long-token>
+```
+
+### Prove that it works
+
+Send this message in the browser:
+
+```text
+Call the fs_list tool with arguments {"path":"/data/homebrew"}. Do not write the command as text. Then tell me how many entries were returned.
+```
+
+A working console run calls the real tool. The Activity panel shows
+`tool fs_list {"path":"/data/homebrew"}`, and the answer uses the real entry
+count. A reply with text but no tool call is not proof. If that happens, send
+`/api/reset` and try the same message again.
+
+On one test console this took 32.0 seconds for the first cold answer and 14.5
+seconds for the tool turn. The first turn is slower because it fills the prompt
+cache. A PS5 has a shared, modest CPU; do not expect laptop speed.
+
+### If the model does not start
+
+- Check the model file. The size must be 532,517,120 bytes.
+- Check `local_model_path` in `/data/ps5h-local.json`.
+- Keep the harness and the model under `/data/homebrew`. The write guard needs
+  that root.
+- Use 3 threads and a 4096-token context on a base PS5. Larger values use more
+  memory and can fail.
+- The harness listens on loopback port 18081 for the in-process server. Do not
+  start PS5LM on that port. You do not need PS5LM at all.
+
+### How the local path is protected
+
+Local mode is a special in-process case. The harness starts its own llama.cpp
+server on `127.0.0.1:18081/v1`, checks that exact loopback address, and sends no
+`Authorization` header. The general URL policy is unchanged: ordinary model
+endpoints must still be HTTPS, and private or loopback addresses are still
+rejected. The local switch has no general-purpose URL override.
+
+See [`docs/LOCAL-MODEL.md`](docs/LOCAL-MODEL.md) for the build and design notes.
+
+## Choose a model and endpoint
+
+The harness can call any OpenAI-compatible HTTPS endpoint, or run its built-in
+on-console model. You do not need to edit a config file or restart the process
+to change between them.
+
+1. Open **Model** in the left rail or the right panel.
+2. Select **On-console (built-in)** to use the GGUF that runs inside the
+   harness. No key is needed. Or select a cloud preset: **OpenAI**, **Venice**,
+   **OpenRouter**, or **Groq**. Select **Custom endpoint** for any other
+   compatible service.
+3. Enter the base URL and the exact model ID from your provider.
+4. Enter one key source:
+   - **Key environment:** the name of an environment variable.
+   - **Key file on console:** an absolute path to a local file that contains
+     the key.
+5. Set temperature and the maximum response tokens, if needed.
+6. Select **Apply to next turn**.
+
+![Model and provider panel](docs/ui-model-picker.png)
+
+*Figure 2. The Model and provider panel on the deployed console. It shows the
+selected model `deepseek-v4-1-flash-uncensored` on Venice. The workspace header
+and model field show the selected model. The panel sits at the Apply control.
+The key source field shows a temporary path, not the key value.*
+
+![Console activity after the model switch](docs/ui-console-model-switch.png)
+
+*Figure 3. The same deployed console browser session after one real Venice
+turn. Activity records the switch and `provider served model
+deepseek-v4-1-flash-uncensored`. The stats show 3,188 tokens in one step and
+the answer `CONSOLE-SWITCH-OK`.*
+
+The model ID used in the screenshot is Venice's
+`deepseek-v4-1-flash-uncensored`. Venice lists this model in its model catalogue;
+availability and prices can change. Enter the exact ID that your account can
+use.
+
+The Model panel has these safeguards:
+
+- The provider URL goes through the same URL policy as a model turn. The default
+  policy accepts HTTPS only and rejects private and loopback addresses.
+- The harness reads the key on the server. The page receives the key source
+  label or path, never the key value.
+- The harness refuses a model change while a turn is running.
+- The harness logs the model and endpoint, but not the key.
+
+### Model settings in a config file
 
 ```json
 {
-  "id": "archive",
-  "description": "Internet Archive",
-  "baseUrl": "https://archive.org",
-  "auth": { "type": "none" },
-  "headers": { "Accept": "application/json" },
-  "operations": {
-    "search": {
-      "method": "GET",
-      "path": "/advancedsearch.php",
-      "query": { "q": "{{query}}", "rows": "{{rows}}", "output": "json" },
-      "pick": "response.docs",
-      "description": "Search the catalogue"
-    }
+  "model": {
+    "base_url": "https://api.venice.ai/api/v1",
+    "model": "deepseek-v4-1-flash-uncensored",
+    "api_key_env": "VENICE_API_KEY",
+    "api_key_file": "",
+    "temperature": 0.2,
+    "max_tokens": 4096
   }
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `id` | Tool name segment; sanitised to `[a-z0-9_-]` |
-| `baseUrl` | Must be `https`; checked against the URL policy at load and at call |
-| `auth` | `none`, `bearer` (env var), `header` (env var + header), `query` (env var + param) |
-| `headers` | Sent on every operation |
-| `operations.<name>.method` | `GET` (default), `POST`, … |
-| `operations.<name>.query` | Static or `{{placeholder}}` values, URL-encoded |
-| `operations.<name>.body` | `POST` body; strings may contain `{{placeholder}}` |
-| `operations.<name>.pick` | Dotted path applied to a JSON response before it reaches the model |
-| `operations.<name>.timeout_seconds` | Per-tool deadline, default 30 |
+Use `api_key_env` when the launcher can set an environment variable. Use
+`api_key_file` when it cannot. The file must contain the key as one line. The
+config stores only the variable name or the file path.
 
-Every distinct `{{placeholder}}` becomes a required string parameter. Auth is
-read from the environment at call time; a missing credential returns an error
-instead of sending an unauthenticated request. Redirects are disabled, so a
-manifest cannot bounce to another host.
+A key file is a secret. Keep it outside the repository and outside the release
+archive. Restrict its permissions. Delete it when you no longer need it.
 
-## Adding behaviour: plugins
+### What happens to delegated children
 
-`include/ps5h/plugin_api.h` is the contract (ABI v2). A plugin exports
-`ps5h_plugin_init` and `ps5h_plugin_id` and gets:
+The Model panel changes the primary agent for the next top-level turn. Child
+agents created by `delegate`, `swarm`, or a mission use the model configuration
+that was loaded at startup. Restart the harness after changing the model if you
+need older child profiles to use the new model. The current run keeps its
+budget accounting and tool permissions.
 
-- `register_tool(name, description, JSON Schema, handler, user)`
-- a handler that receives arguments and writes its result with `emit(...)`
-- `http_request(request_json)` — the host does TLS; plugins never link OpenSSL
-- `get_env(name)` — credentials, nothing stored in the plugin binary
-- `log(level, message)`, `free_string`
-
-`examples/plugins/hello/hello.c` is a working example. The ABI is append-only
-and versioned; check `host->abi_version` before using newer members.
-
-**Trust model.** A manifest is data. A plugin is arbitrary code in the harness
-process with network access and the harness's filesystem permissions. Only load
-plugin directories you would run as a program.
-
-## Local agents
-
-A local agent is a JSON profile on the console, not a compiled plugin. Profiles
-are read at startup, so editing one on the PS5 takes effect on the next run with
-no rebuild.
-
-Default profile directory: `/data/homebrew` on the console, `agents` on the
-host. `agents_dir` in the config sets another default, and `--agents <dir>`
-overrides both. The file name is the agent name: `<dir>/<name>.json`.
-
-```json
-{
-  "description": "Local archivist",
-  "system_prompt": "You are the local archivist. Read before answering.",
-  "model": "gpt-4o-mini",
-  "temperature": 0.2,
-  "max_tokens": 1024,
-  "max_steps": 8
-}
-```
-
-| Field | Meaning |
-|---|---|
-| `description` | One-line label shown by `--list-agents` |
-| `system_prompt` | Inline system prompt |
-| `system_prompt_file` | Prompt file relative to the profile directory (alternative to `system_prompt`) |
-| `model` | Model id override |
-| `temperature` | 0–2 |
-| `max_tokens` | 0–32768; 0 omits the field |
-| `max_steps` | 1–64 tool steps |
-
-`system_prompt_file` is canonicalised and must stay inside the profile
-directory; both prompt forms are capped at 64 KiB. A profile cannot set
-`allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
-`plugins_dir`, `skills_dir`, `api_key_env` or `delegation_max_depth` — those
-stay in the main config, so a profile cannot widen its own permissions.
-Explicit `--model` and `--max-steps` flags win over the profile.
-
-### Delegating to another profile
-
-Any run exposing the `delegate` tool can hand a subtask to another local
-profile:
-
-```json
-{"profile":"archivist","task":"list /data/homebrew and summarise it"}
-```
-
-The child is a normal agent run. It uses the profile prompt, model,
-temperature, `max_tokens` and `max_steps`, and it receives a copy of the
-parent's tool registry. That copy keeps the parent's `PathGuard`, `UrlPolicy`,
-secrets and endpoint/plugin tools, so delegation cannot widen filesystem,
-network or credential access. A profile that names `allowed_roots`,
-`read_roots`, `url_policy`, `secret_env`, `endpoints_dir`, `plugins_dir`,
-`skills_dir`, `api_key_env` or `delegation_max_depth` is rejected before the
-child starts.
-
-`delegation_max_depth` in the config (default 2; `--max-depth` overrides, and 0
-disables delegation) limits nesting. The child reserves steps and tokens from
-the parent's `max_steps`/`max_tokens` pool; unused steps and reported tokens
-are refunded, while a provider that omits usage leaves its full token
-reservation charged. An over-sized child request is refused, not clamped.
-Explicit `--model` and `--max-steps` flags still win over the child profile.
-
-The run log names both sides and the accounting:
-
-```
-[harness] delegate -> profile=archivist depth=1 task=list /data/homebrew
-[harness] delegate answer from archivist: ...
-[harness] delegate <- profile=archivist ok=true steps=2 tokens=123 remaining=4/389
-```
-
-`--call delegate --args '{"profile":"archivist","task":"..."}'` runs one
-delegation without a parent model turn and prints a JSON result containing
-`ok`, `profile`, `depth`, `steps`, `tokens` and the remaining budget. The
-child's answer is returned to the parent as the tool result and is also logged;
-it is not printed as a separate final answer.
+## Start the browser workspace
 
 ```bash
-./build/harness --agents examples/agents --list-agents
-./build/harness --agents examples/agents --agent archivist --agent-info
-./build/harness --config config.example.json --agents examples/agents \
-  --agent archivist "what is in /data/homebrew?"
+./build/harness --config config.example.json --serve 8787 \
+  --session /data/homebrew/ps5h-session.json
 ```
 
-`--agent-info` resolves and prints the profile without calling a model, which is
-useful on the console where no key is staged. On the PS5:
+The page has three areas:
+
+- The left rail starts a session and switches panels.
+- The centre shows the chat and the composer.
+- The right panel shows Activity, Tools, Model, and Home screen.
+
+The page works on a phone or tablet on the same LAN. It also works with a
+keyboard, mouse, game controller, on-screen keyboard, pointer, or browser
+dictation. See [Input](#input) and
+[HTTPS and microphone trust](#https-and-microphone-trust).
+
+### Input
+
+The page reads the device that runs the browser. Peripherals paired only to the
+console are not forwarded to a remote browser.
+
+- **Keyboard and mouse:** type in the composer. Enter sends. Shift+Enter adds a
+  line. Tab moves focus. Ctrl/Command+K returns to the composer.
+- **Controller:** the Gamepad API maps the D-pad and left stick to focus. Cross
+  or A activates. Circle or B goes back. Square or X opens the on-screen
+  keyboard. Triangle or Y focuses the composer. L1 and R1 select Activity and
+  Tools. The triggers scroll.
+- **On-screen keyboard:** letters, digits, punctuation, Shift, Backspace, Space,
+  and Enter. Controller focus rings move between keys.
+- **Touchpad and pointer:** touch input moves a virtual pointer. A tap or
+  touchpad click activates the control under it.
+- **Dictation:** the microphone button uses the browser's Web Speech
+  recognition, when the browser provides it. The browser uses its selected
+  microphone.
+
+Web Speech and microphone permissions need HTTPS or localhost. The console
+serves HTTPS on port 8790 and HTTP on ports 8789 and 8791. See
+[HTTPS and microphone trust](#https-and-microphone-trust).
+
+### HTTPS and microphone trust
+
+The console can serve the same workspace over HTTP and HTTPS. A typical setup
+uses these values:
+
+| Item | Value |
+|---|---|
+| HTTPS workspace | `https://<console-ip>:8790/` |
+| HTTP workspace | `http://<console-ip>:8791/` |
+| HTTP companion | `http://<console-ip>:8789/` |
+| Certificate | `/data/ps5h-cert.pem` |
+| Private key | `/data/ps5h-key.pem` |
+| Certificate identity | `CN=PS5 Harness`; Subject Alternative Name (SAN) includes the console address, `127.0.0.1`, and `localhost` |
+
+The certificate is self-signed. Treat it as a local root certificate. Import it
+on the browser device and set it to **Always Trust**.
 
 ```bash
-# copy archivist.json (and any prompt file) to /data/homebrew first
-printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--list-agents\n' \
-  | nc -w 30 <console-ip> 9021
-printf 'file:/data/harness.elf?args=--config%%20/data/ps5-harness.json%%20--agent%%20archivist%%20--agent-info\n' \
+security add-trusted-cert -r trustRoot \
+  -k ~/Library/Keychains/login.keychain-db ps5h-cert.pem
+```
+
+On iOS or iPadOS, install the certificate profile, then enable it under
+**Settings → General → About → Certificate Trust Settings**.
+
+If the console gets a new network address, use the HTTP listener or make a new
+certificate with the new address in its SAN. A browser warning that you click
+through is a test workaround, not proof that trust works. HTTPS does not replace
+the token.
+
+Start both listeners from one payload:
+
+```bash
+./build/harness --config /data/ps5h-mission.json --serve 8791 \
+  --serve-tls 8790 --tls-cert /data/ps5h-cert.pem \
+  --tls-key /data/ps5h-key.pem --serve-token <token> \
+  --session /data/homebrew/ps5h-mission-session.json
+```
+
+## Run on a PS5
+
+The shortest console path is the built-in local model. It needs no cloud key.
+Follow [Run the model on the console](#run-the-model-on-the-console-no-key).
+
+The release bundle has a validated payload package, `harness.elf`, a local
+discovery helper, examples, both console configs, licence notices, and
+`START-HERE.md`.
+
+```bash
+make release
+# dist/ps5-harness-<version>-<commit>.zip
+# dist/ps5-harness-<version>-<commit>.zip.sha256
+
+make local-kit LOCAL_MODEL=/path/to/Qwen3.5-0.8B-Q4_K_M.gguf
+# dist/ps5-harness-<version>-<commit>-local.zip
+# that zip also contains PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf
+```
+
+The release build needs the pinned payload SDK, PacBrew libraries, LLVM
+toolchain, and the PS5 llama.cpp static archives. Follow
+[`platform/ps5/BUILD.md`](platform/ps5/BUILD.md),
+[`docs/LOCAL-MODEL.md`](docs/LOCAL-MODEL.md) and
+[`docs/RELEASE.md`](docs/RELEASE.md).
+
+For cloud mode, stage `config.console.json` as `/data/ps5h-config.json` and
+launch with the same shape:
+
+```bash
+printf 'file:/data/homebrew/PHAR00001/harness.elf?args=--config%%20/data/ps5h-config.json%%20--serve%%208787%%20--serve-token%%20<token>\n' \
   | nc -w 30 <console-ip> 9021
 ```
 
-## Local reconnaissance
+The payload starts. Open the printed URL or the home-screen tile. Keep the
+console and the browser on a trusted LAN.
 
-Four read-only recon tools are always registered. They are the harness's own
-answer to "what machine am I on, and what is around me?"
+The harness does not install a background service. If the console reboots or
+loses the jailbreak, launch the payload again.
 
-| Tool | What it reports |
+## Tools
+
+The default registry includes guarded file, network, process, and agent tools.
+The exact list depends on the mode and installed endpoint or plugin tools.
+
+| Group | Tools | What they do |
+|---|---|---|
+| Read files | `fs_list`, `fs_read` | List a directory or read a text file inside the read roots. |
+| Write files | `fs_write`, `fs_edit`, `fs_mkdir`, `fs_move`, `fs_delete` | Change files inside the write roots. The write guard resolves every path to its real path first. |
+| Inspect files | `fs_tree`, `file_info`, `fs_strings`, `fs_search`, `hexdump` | Map a tree, identify a binary, read bounded strings, search text, or print raw bytes. |
+| Environment | `env_info`, `sysctl` | Report the build, roots, mounts, CPUs, memory, limits, and selected system values. |
+| Network | `http_get`, `download` | Fetch a URL or stream a file through the URL policy. |
+| Skills | `skill` | List skills, load instructions, or read a bundled resource. |
+| Agents | `delegate`, `swarm` | Send work to another profile or run bounded parallel lanes. |
+
+`--plan` removes every mutating tool from the registry. A model cannot call a
+tool that is not in the registry. A refusal is an error, not a suggestion to
+find another path.
+
+Every tool call has a deadline. The default is 30 seconds; a tool can set a
+different value. A large response is capped by the runtime budget.
+
+### Console driver
+
+The payload has no native window, so the console's screen is the workspace it
+serves. The agent can operate that screen from inside the process: it reads a
+frame and presses the same buttons the browser's gamepad layer maps. No laptop,
+no browser and no second agent is in the loop.
+
+| Tool | What it does |
 |---|---|
-| `env_info` | Build/title, platform, cwd, read/write roots, skills dir, CPUs, memory, limits, runtime budget and system mounts |
-| `fs_tree` | Bounded directory tree under the read roots, depth 1–8 (default 3), at most 500 entries; symlinks are reported, never followed; secret-named entries are marked `denied` |
-| `file_info` | Size, mode, uid/gid, mtime, sha256 (files up to 64 MiB), magic, and ELF/Mach-O/PE headers with class, machine, type and entry point |
-| `fs_strings` | Up to 200 printable ASCII strings from the first 16 MiB of a file, minimum length 4–64; it does not execute or decompile the file |
+| `screen_shot` | An ASCII frame of the screen plus the focused control id. |
+| `screen_find` | Search controls on every panel by id, label or value. |
+| `screen_focus` | Move focus to a control by id, switching panel when needed. |
+| `screen_press` | Cross activates, circle goes back, up/down move focus, l1/r1 and left/right switch panel, triangle focuses the composer. |
+| `screen_type` | Type into the focused field: the message composer or a model field. |
+| `screen_flow` | Run up to 64 steps with expectations. The first mismatch stops it. |
 
-All four go through the configured read roots and the same secret-name rules as
-`fs_read`. `fs_tree` does not follow a symlink out of a root, `file_info`
-canonicalises before opening, and `env_info` filters other titles'
-`/mnt/sandbox/...` mounts and caps the mount list. The recon surface itself does
-not write or chmod; the separate power tools below do, under the write guard.
+A flow is a JSON list of steps. Each step presses, focuses, types, or asserts
+what is visible, so a setup sequence is checked rather than assumed. The example
+below switches the provider and fails if the screen does not say so:
+
+```json
+{"steps": [
+  {"press": "r1"},
+  {"expect_panel": "tools"},
+  {"focus": "model:id"},
+  {"type": "qwen3.5-0.8b"},
+  {"focus": "model:apply"},
+  {"press": "cross"},
+  {"expect_status": "model applied"},
+  {"shot": true}
+]}
+```
+
+```bash
+./build/harness --ui-shot                               # one frame, no model
+./build/harness --ui-flow examples/flows/panel-tour.json  # run a flow
+```
+
+With `--serve` running, every press is a real action. Apply goes through the
+same field validation and URL policy as `POST /api/model`, a send runs a turn,
+and the home-screen controls call the same tile manager as `/api/home-tile`. A
+browser attached to the same process follows the panel the agent opened, and a
+panel a person opens is what the agent's next frame shows. Focus is shared the
+same way: the page reports the control a person reaches with the controller,
+keyboard or click, so the agent's frame reads the panel and control they are on.
+The page follows the agent's panel while it is driving; it does not yet mirror
+the agent's focus inside a panel. `--plan` removes every pressing tool, so a
+read-only run can look but not act.
+
+The driver does not reach the PS5's own system software: a payload gets no
+framebuffer capture and no HID injection. It operates the harness surface as the
+console's UI. That is why the claim is that the console drives itself, not that
+it drives the firmware's menus.
+
+### Local reconnaissance
+
+Four read-only tools answer the question "what machine am I on?":
+
+| Tool | Report |
+|---|---|
+| `env_info` | Build, platform, current directory, roots, skills directory, CPUs, memory, limits, budget, and mounts. It hides other titles' `/mnt/sandbox/...` mounts. |
+| `fs_tree` | A bounded tree under a read root. Symlinks are reported, never followed. Secret-named entries are marked denied. |
+| `file_info` | Size, mode, owner, time, sha256, magic, and ELF, Mach-O, or PE headers. |
+| `fs_strings` | Up to 200 printable ASCII strings from the first 16 MiB of a file. It does not execute or decompile the file. |
+
+Examples:
 
 ```bash
 ./build/harness --call env_info --args '{}'
@@ -341,245 +602,128 @@ not write or chmod; the separate power tools below do, under the write guard.
 ./build/harness --call fs_strings --args '{"path":"build/harness","min_length":8}'
 ```
 
-## Power tools and the browser workspace
+## Skills
 
-The default registry is not read-only. It already contains `fs_write`,
-`fs_edit`, `http_get`, `download`, endpoint/plugin tools and delegation. The
-power surface adds guarded primitives so an investigation can create a working
-tree, rename evidence, search it and inspect raw bytes without dropping to a
-shell:
+A skill is a local folder of instructions. It is not code and it is not a new
+permission.
 
-| Tool | What it does |
-|---|---|
-| `fs_mkdir` | Creates one directory under the write roots; parent must exist |
-| `fs_move` | Renames/moves inside the write roots; refuses overwrite unless `overwrite=true`; never splits cross-device moves |
-| `fs_delete` | Deletes one file or one empty directory; never recursive; symlinks are unlinked, not followed |
-| `fs_search` | Literal text search with bounded recursion, files, bytes, depth and result count; returns `path:line:column` evidence |
-| `hexdump` | Bounded hex + ASCII view of a file range for headers, tables and opaque structures |
-| `sysctl` | Allows `kern.*`, `hw.*`, `vm.*`, `net.*`, `machdep.*` and `dev.*` reads; argument/env/credential/key/token/secret names are denied |
-
-Every path still goes through the same canonicalisation and write guard as
-`fs_write`; secret-named paths (including `.env`) stay denied. `--plan` removes
-the mutating tools from the registry rather than relying on the prompt.
-
-`--serve` is the workspace shell: a dark three-panel page served by the harness
-itself. The left rail starts/reset sessions; the centre is a persistent chat with
-user/assistant turns and a composer; the right inspector shows live tool activity
-and the registered tool catalogue, plus context, message, compaction, token and
-step counters. The page is dependency-free (no CDN or web fonts), works on a
-phone on the same LAN, and stores the transcript locally. History is saved after
-every turn, loaded on restart, and compacted only when the approximate transcript
-budget is exceeded; the newest turns are kept verbatim.
-
-### Input
-
-The page is usable without a console-side keyboard or mouse, and without the
-terminal. Input is handled by the browser that opens the page:
-
-- **Physical keyboard and mouse** — native DOM input. Type in the composer,
-  paste, select, click, scroll, use Tab/Shift+Tab and Ctrl/⌘K to return to the
-  composer. Enter sends; Shift+Enter inserts a newline.
-- **Controller** — the Gamepad API maps D-pad/left stick to spatial focus,
-  Cross/A to activate, Circle/B to go back, Square/X to open the on-screen
-  keyboard (or backspace while it is open), Triangle/Y to focus the composer,
-  Options/Start to toggle the keyboard, Create/Select for input help, L1/R1 for
-  Activity/Tools, triggers for scrolling, and L3/R3 or the touchpad button for
-  the pointer.
-- **On-screen keyboard** — a controller-navigable keyboard with letters, digits,
-  punctuation, Shift, Backspace, Space and Enter. Controller focus rings move
-  between keys; mouse/touch clicks work too. It targets the composer or the
-  login token field, whichever was focused when opened.
-- **Touchpad and pointer** — when the browser exposes Gamepad touch surfaces,
-  touch position moves a virtual pointer, a short tap or the touchpad click
-  activates the control under it. Browsers that do not expose touch coordinates
-  fall back to the right stick and R3/L3, with the same pointer overlay.
-- **Dictation** — the mic button starts the browser's Web Speech recognition
-  (Chrome/Edge/Safari, where available), inserts final phrases at the cursor and
-  shows the selected audio input. The browser's selected microphone is used;
-  select a controller headset as the system/browser input if that is the mic you
-  want. A browser without Web Speech can still use its own keyboard dictation
-  key into the composer.
-
-The page reads the device running the browser. A keyboard, mouse, controller or
-headset paired only to the console is not forwarded to a remote browser by this
-payload. Web Speech and microphone permissions require HTTPS or localhost. The
-console now serves HTTPS directly on port 8790; the HTTP companion on 8789 and
-the new HTTP listener on 8791 explain the requirement when the mic button is
-pressed. See [HTTPS and microphone trust](#https-and-microphone-trust) for the
-certificate and trust steps.
-
-```bash
-./build/harness --config config.example.json --serve 8787 \
-  --session /data/ps5h-session.json
-
-# Serve HTTP and HTTPS from the same console payload:
-./build/harness --config /data/ps5h-mission.json --serve 8791 \
-  --serve-tls 8790 --tls-cert /data/ps5h-cert.pem \
-  --tls-key /data/ps5h-key.pem --serve-token <token> \
-  --session /data/ps5h-mission-session-final.json
+```text
+<skills_dir>/<name>/SKILL.md
 ```
 
-### HTTPS and microphone trust
+The default directory is `/data/homebrew/skills` on the console and `skills` on
+the host. Set `skills_dir` in the config or use `--skills <dir>`.
 
-The console serves the same token-gated workspace over both schemes. A typical
-setup uses:
+`SKILL.md` can start with frontmatter:
 
-| Item | Value |
-|---|---|
-| HTTPS | `https://<console-ip>:8790/` |
-| Home tile | `/data/homebrew/HARN00001` (`HARN00001`) |
-| HTTP companion | `http://<console-ip>:8789/` |
-| New HTTP | `http://<console-ip>:8791/` |
-| Certificate | `/data/ps5h-cert.pem` (public) |
-| Private key | `/data/ps5h-key.pem` (keep on the console) |
-| Certificate identity | `CN=PS5 Harness`, SAN `<console-ip>`, `127.0.0.1`, `localhost` |
+```markdown
+---
+name: console-notes
+description: Create, append to, and review notes on the console.
+---
 
-The certificate's SAN is tied to the address used when it was generated. If the
-console gets a new DHCP address, use the HTTP listener or regenerate the
-certificate with the new address in its SAN; otherwise HTTPS will show a
-name-mismatch warning. The discovery helper prints the HTTP origin for this
-reason.
+# Console notes
 
-The certificate is self-signed (and valid as a local root), so treat it as a
-local CA and trust it on the client. Download `/data/ps5h-cert.pem` through the
-console's web file manager, save it as `ps5h-cert.pem`, then import it into
-Keychain Access and set **Always Trust**, or run:
-
-```bash
-security add-trusted-cert -r trustRoot \
-  -k ~/Library/Keychains/login.keychain-db ps5h-cert.pem
+1. Read the notes file before changing it.
+2. Use fs_edit for a targeted append, or fs_write to create the file.
+3. Report the exact path from the tool result.
 ```
 
-On iOS/iPadOS, install the certificate profile, then enable it under
-**Settings → General → About → Certificate Trust Settings**. Chrome and Edge use
-the operating system trust store. After trusting it, open the HTTPS URL without
-a certificate warning. Browsers still require the bearer token; TLS does not
-replace authentication.
+The `skill` tool lists local skills and built-in skills. A disk skill with the
+same name overrides the built-in copy. Built-in skills are compiled into the
+binary, so a fresh console has methodology without extra files.
 
-Trusting a self-signed certificate is a client-side step. If the operating
-system reports that it is not trusted, open the imported **PS5 Harness**
-certificate and set **Always Trust** for SSL. A browser test that bypasses the
-warning does **not** prove warning-free trust.
+Six clean-room skill packs are included. They are instructions only. They do not
+contain third-party code, binaries, scripts, or network endpoints.
 
-If the certificate is not trusted, clicking through the warning still yields a
-secure context and the microphone prompt, but that bypass is only for testing;
-trust the certificate for normal use. The HTTP pages remain available and show
-the HTTPS/localhost guidance instead of silently failing when the mic button is
-pressed.
+## Delegation, swarms, and missions
 
-### Connection loss, restarts and address changes
+### Local agent profiles
 
-The workspace keeps the last session in `--session` and retries the same origin
-with a short request timeout. A **Console connection lost** banner lets
-the user retry immediately or enter a new address/port; the token is carried to
-the new origin and removed from the address bar after the page loads. See
-[`docs/RECOVERY.md`](docs/RECOVERY.md) for the full support runbook.
-
-The HTTP listener binds `0.0.0.0`, so a changed DHCP address does not require a
-rebuild or source change. The serving port is whatever `--serve` chooses. A
-primary listener with `--discovery-port 8799` also answers a UDP query and
-publishes a public identity document at `/.well-known/ps5h`:
-
-```bash
-# Public document; it contains ports/addresses/build/title, never the token.
-curl http://<console-ip>:8791/.well-known/ps5h
-
-# Find the console after its IP or port changed.
-python3 tools/ps5h-discover.py
-python3 tools/ps5h-discover.py --wait
-python3 tools/ps5h-discover.py --subnet <lan-cidr>   # if UDP is blocked
-```
-
-The helper, server and browser-runtime tests are host-side only in this tree;
-the running `0.1.0-tile` console process must be rebuilt and relaunched to
-include the new endpoint and banner. Use a fixed `--serve-token` for a customer
-setup; a token generated because the flag was omitted changes on every launch.
-
-`make reconnect-test` drives the served page in headless Chrome against local
-HTTP and HTTPS harnesses. It stops and restarts a harness, changes the origin
-and port while preserving the token, checks that the transcript reloads, and
-checks that a stale token produces the login/rejected-token state instead of a
-dead-console state.
-
-`server_test` also simulates resume: it sends `SIGCONT` to the serving process
-while a test hook holds the network down, asserts that HTTP and UDP requests are
-still answered by the existing listeners during the wait, then restores the
-network and asserts that the listeners rebind with a new `listener_generation`
-and the in-memory transcript stays intact. It repeats the wake to prove a
-second resume can recover after a rebind blocked by the unavailable network.
-This is a host simulation, not a rest-mode hardware test. See the rest-mode
-section below for the remaining limits.
-
-On firmware where rest mode **suspends** the userland process, the process and
-the saved session survive, but the system closes its listening sockets. The
-serving loop detects `SIGCONT`, a wall-clock jump of at least five seconds, or
-a change in the non-loopback IPv4 address set; it keeps existing
-listeners in the poll set while the network is unavailable (so a still-valid
-listener continues to serve), then rebinds HTTP, HTTPS and UDP discovery once
-the network is ready. The page's normal retry then reconnects, or
-the user uses the address field if DHCP changed the console's IP. If rest mode
-instead **terminates** the process or resets the jailbreak, the payload still
-has to be relaunched manually; the harness has no wake-on-LAN, scheduler or
-background-service path.
-
-## Plan mode, swarms and missions
-
-### Read-only plan mode
-
-`--plan` builds the registry without `fs_write`, `fs_edit`, `fs_mkdir`,
-`fs_move`, `fs_delete`, `http_get`, `download`, endpoint tools or plugin tools,
-and appends a read-only planning
-instruction to the system prompt. The model can still inspect the machine and
-load skills, but a call to a missing tool is an unknown-tool error and nothing
-is created. Delegated children inherit the same read-only registry.
-
-```bash
-./build/harness --config config.example.json --plan \
-  "map the local layout and propose the next checks"
-./build/harness --plan --tools    # 12 tools: recon + read + search/hexdump/sysctl + skill + delegate/swarm
-```
-
-Plan mode is not a sandbox for a malicious plugin. It never loads endpoint or
-plugin directories, and the ordinary process permissions still apply.
-
-### Swarms
-
-The `swarm` tool runs up to eight independent child runs in parallel, preserving
-input order. Each lane is a normal delegated child: it gets the parent's
-read/write roots, URL policy, secrets, endpoints, plugins and shared
-step/token budget, and it can delegate further only within
-`delegation_max_depth`. One failed lane does not cancel the others; the merged
-result is `ok:false` if any lane failed.
+A local agent is a JSON profile. The file name is the agent name.
 
 ```json
-{"tasks":[
-  {"profile":"archivist","task":"inspect /data binaries with file_info","max_steps":3},
-  {"profile":"maintainer","task":"map configuration and mounts read-only","max_steps":3}
-]}
+{
+  "description": "Local archivist",
+  "system_prompt": "You are the local archivist. Read files before answering.",
+  "model": "gpt-4o-mini",
+  "temperature": 0.2,
+  "max_tokens": 1024,
+  "max_steps": 8
+}
 ```
 
-The width limit is hard. Use lanes for orthogonal surfaces, not for repeating
-the same question; the shared pool will refuse an over-sized reservation rather
-than silently serialize or overspend it.
+A profile can set a description, a system prompt or prompt file, a model,
+temperature, token limit, and step limit. A profile cannot set roots, URL
+policy, secrets, endpoint or plugin directories, skills directory, key source,
+or delegation depth. Those values stay in the main config. This rule stops a
+profile from widening its own permissions.
 
-### Missions
+```bash
+./build/harness --agents examples/agents --list-agents
+./build/harness --agents examples/agents --agent archivist --agent-info
+```
 
-A mission is a bounded JSON sequence of steps. Each step runs a profile at
-depth 1 (so it may delegate one level further), or a swarm of lanes. The runner
-stops at the first failed step and appends a clipped summary of prior answers
-to later tasks, which gives a multi-step/multi-level run without an unbounded
-agent loop. Budgets are per step and per lane, and the whole run still uses the
-parent's `--max-steps`/`max_tokens` pool.
+### Delegate one task
+
+```json
+{"profile":"archivist","task":"list /data/homebrew and summarise it"}
+```
+
+The child receives a copy of the parent's tool registry. The copy keeps the
+paths, URL policy, secrets, and endpoint or plugin tools. The child spends steps
+and tokens from the parent's pool.
+
+### Run a swarm
+
+The `swarm` tool runs up to eight tasks in parallel. Results keep the input
+order. One failed lane does not cancel the others. The merged result is
+`ok:false` if any lane fails.
+
+```json
+{
+  "tasks": [
+    {
+      "profile": "archivist",
+      "task": "inspect /data binaries with file_info",
+      "max_steps": 3
+    },
+    {
+      "profile": "maintainer",
+      "task": "map configuration and mounts read-only",
+      "max_steps": 3
+    }
+  ]
+}
+```
+
+Use lanes for separate surfaces. Do not use lanes to repeat the same question.
+The shared pool refuses an oversized reservation instead of silently
+overspending it.
+
+### Run a mission
+
+A mission is a bounded JSON sequence. Each step runs one profile or one swarm.
+The runner stops at the first failed step and passes clipped prior answers to
+later tasks.
 
 ```json
 {
   "name": "local-map",
   "steps": [
-    {"id": "map", "profile": "archivist", "task": "map the read roots", "max_steps": 4},
-    {"id": "lanes", "swarm": [
-      {"profile": "archivist", "task": "identify binaries", "max_steps": 3},
-      {"profile": "maintainer", "task": "map configuration", "max_steps": 3}
-    ]}
+    {
+      "id": "map",
+      "profile": "archivist",
+      "task": "map the read roots",
+      "max_steps": 4
+    },
+    {
+      "id": "lanes",
+      "swarm": [
+        {"profile": "archivist", "task": "identify binaries", "max_steps": 3},
+        {"profile": "maintainer", "task": "map configuration", "max_steps": 3}
+      ]
+    }
   ]
 }
 ```
@@ -589,539 +733,211 @@ parent's `--max-steps`/`max_tokens` pool.
   --mission examples/missions/local-map.json
 ```
 
-The file is capped at 512 KiB, 32 steps, 8 lanes per step and 8 KiB per task.
-There are no conditionals, loops or shell commands: a mission composes agent
-turns, not arbitrary code. `examples/missions/local-map.json` is a working
-starting point.
+A mission file is capped at 512 KiB, 32 steps, 8 lanes per step, and 8 KiB per
+task. Missions have no loops, conditionals, or shell commands.
 
-## Editing local files
+## Safety rules
 
-Every run gets `fs_write` and `fs_edit`, and every delegated child receives the
-same two tools through the inherited registry. Both write only under
-`allowed_roots`, after the path is canonicalised and checked against the
-secret-name rules:
+These rules are enforced in code. They are not suggestions in a prompt.
 
-- `fs_write(path, content)` creates or replaces a whole file. Use it for a new
-  file or when the whole content genuinely changes.
-- `fs_edit(path, old, new)` replaces exact text. The match must be unique unless
-  `replace_all` is true, so a stale or ambiguous edit is refused instead of
-  silently changing the wrong place. The file is read first, capped at 8 MiB,
-  and the new content is written beside it and renamed into place.
+| Rule | Implementation |
+|---|---|
+| Paths are resolved to real paths. `..` and symlink escapes are rejected. | `src/paths.cpp` |
+| Reads and writes stay inside the configured roots. Config, credential, state, and secret-named paths are denied. | `src/paths.cpp`, `src/main.cpp` |
+| Skills are read-only text. Resource paths stay inside the skill directory. | `src/skills.cpp` |
+| Plan mode removes every mutating tool, including endpoint and plugin tools. | `src/main.cpp` |
+| Tool results are scrubbed of known secret values before the model sees them. | `src/secrets.cpp`, `src/agent.cpp` |
+| Manifests use HTTPS, host policy, private-range denial, DNS rechecks, and address pinning. | `src/policy.cpp`, `src/http.cpp` |
+| The model endpoint goes through the same URL policy. A key never travels over cleartext. | `src/agent.cpp` |
+| Downloads stream to disk with a byte cap, Range resume, and sha256. | `src/http.cpp` |
+| Every tool has a deadline. | `src/core.cpp` |
+| The browser API requires a token. One turn runs at a time. No cookies and no wildcard cross-origin sharing. | `src/server.cpp` |
+| The public discovery document contains service, build, title, ports, and addresses. It does not contain the token, session, or tool data. | `src/server.cpp` |
+| Session files stay under the write roots and cannot use a secret-looking name. | `src/main.cpp`, `src/paths.cpp` |
 
-Reading a file before editing it is part of the default prompt. A refusal names
-the reason: outside the roots, denied path, text not found, or text appears more
-than once.
+The listener is off unless you pass `--serve`. A plugin is arbitrary code in the
+harness process; load only plugin directories that you trust.
 
-## Skills
+## Configuration reference
 
-A skill is a folder of local instructions, not code and not a new permission.
-Put it under the skills root:
+`config.example.json` is a complete starting point. The main fields are:
 
-```
-<skills_dir>/<name>/SKILL.md
-```
+| Field | Meaning |
+|---|---|
+| `model.base_url` | HTTPS endpoint base URL. |
+| `model.model` | Exact provider model ID. |
+| `model.api_key_env` | Environment variable name for the key. |
+| `model.api_key_file` | Local key file. The config stores the path only. |
+| `model.temperature` | 0 to 2. |
+| `model.max_tokens` | 0 to 32768. Zero omits the field. |
+| `endpoints_dir` | Folder of endpoint manifest files. |
+| `plugins_dir` | Folder of plugin shared objects. |
+| `agents_dir` | Folder of local agent profiles. |
+| `skills_dir` | Folder of skills. |
+| `max_steps` | Tool steps per run, 0 to 64. |
+| `delegation_max_depth` | Child depth, 0 to 8. Zero disables delegation. |
+| `allowed_roots` | Directories that writes may touch. |
+| `read_roots` | Directories that reads may touch. |
+| `secret_env` | Environment names whose values are scrubbed from tool output. |
+| `url_policy.https_only` | Reject cleartext URLs. Keep this `true` outside tests. |
+| `url_policy.allowed_hosts` | Exact hosts or `.suffix` entries. Empty allows any host that passes the policy. |
 
-Default skills directory: `/data/homebrew/skills` on the console, `skills` on
-the host. `skills_dir` in the config sets another default, and `--skills <dir>`
-overrides both. `SKILL.md` may start with simple frontmatter:
+Explicit flags win over the config file for `--base-url`, `--model`, and
+`--api-key-file`.
 
-```markdown
----
-name: console-notes
-description: Create, append to and review notes on the console.
----
+### Add an HTTP API with an endpoint manifest
 
-# Console notes
-
-1. Read the notes file before changing it.
-2. Use fs_edit for a targeted append, or fs_write to create it.
-3. Report the exact path from the tool result.
-```
-
-`name` must match the directory; `description` is what `skill` lists. The file
-is capped at 256 KiB. The tool lists packs when `name` is omitted, loads one by
-name, or reads a bundled file with `resource`:
+Put a JSON file in the endpoints directory. Each operation becomes a tool named
+`ep_<id>_<operation>`.
 
 ```json
-{"name":"console-notes"}
-{"name":"file-audit","resource":"report-template.md"}
+{
+  "id": "archive",
+  "description": "Internet Archive",
+  "baseUrl": "https://archive.org",
+  "auth": {"type": "none"},
+  "headers": {"Accept": "application/json"},
+  "operations": {
+    "search": {
+      "method": "GET",
+      "path": "/advancedsearch.php",
+      "query": {"q": "{{query}}", "rows": "{{rows}}", "output": "json"},
+      "pick": "response.docs",
+      "description": "Search the catalogue"
+    }
+  }
+}
 ```
+
+The manifest rules are:
+
+- `baseUrl` must be HTTPS and must pass the URL policy at load and at call time.
+- Auth can be `none`, `bearer`, `header`, or `query`. The last three read a key
+  from an environment variable at call time.
+- A missing credential returns an error. The harness does not send an
+  unauthenticated request.
+- Redirects are disabled.
+- `pick` selects a JSON path before the result reaches the model.
+
+### Add code with a plugin
+
+The plugin contract is in `include/ps5h/plugin_api.h`. A plugin exports
+`ps5h_plugin_init` and `ps5h_plugin_id`. It can register tools, make host-mediated
+HTTP requests, read an environment value, write a log message, and free a host
+string. The host does TLS; plugins do not link OpenSSL.
+
+`examples/plugins/hello/hello.c` is a working example. The application binary
+interface (ABI) is append-only and versioned. Check `host->abi_version` before
+using a newer member.
+
+## Build, test, and release
 
 ```bash
-./build/harness --skills examples/skills --call skill --args '{}'
-./build/harness --skills examples/skills --call skill \
-  --args '{"name":"file-audit","resource":"report-template.md"}'
+make                  # host binary
+make test             # policy, core, runtime, hardening, tools, server, e2e
+make fuzz-run         # sanitizer fuzzing
+make sanitize-test    # sanitizer tests for recon and mission
+make leaks-check      # macOS leak check
+make plugin-example   # example plugin
+make release          # console payload and release zip
+make local-kit LOCAL_MODEL=/path/to/Qwen3.5-0.8B-Q4_K_M.gguf
+                      # zip with the harness and the GGUF
 ```
 
-Resource paths are canonicalised, must stay inside that skill's folder, and are
-denied by the same secret-name rules as `fs_read`; a symlink that leaves the
-folder is refused. Resource output is clipped to the runtime tool-output budget.
+The host build links the llama.cpp archives in `.deps/llama-host`; the PS5
+build links `.deps/llama-ps5`. Build notes are in
+[`docs/LOCAL-MODEL.md`](docs/LOCAL-MODEL.md).
 
-A skill is guidance the model follows with the tools it already has. It cannot
-set `allowed_roots`, `read_roots`, `url_policy`, `secret_env`, `endpoints_dir`,
-`plugins_dir`, `skills_dir`, `api_key_env` or `delegation_max_depth`, and
-loading one registers no tool and changes no guard. The directory is read on
-every launch, so staging a pack on the console needs no rebuild.
+For the cross build, follow [`platform/ps5/BUILD.md`](platform/ps5/BUILD.md).
+The build needs the pinned payload SDK, PacBrew, LLVM tools and the PS5
+llama.cpp archives. A typical command is:
 
-### Built-in packs
-
-Six packs are compiled into the binary and always available, even when no
-skills directory has been staged. A disk pack with the same name overrides the
-embedded copy.
-
-| Pack | Use |
-|---|---|
-| `reverse-engineer-anything` | Static-first triage, strings, hypotheses and evidence levels for an unfamiliar artifact; it states plainly that the harness has no disassembler or debugger |
-| `local-architect` | Map mounts, executables, configuration, data flow and trust boundaries without writing |
-| `astrik` | Condensed authorized local operator method: charter, cheap probes, L1–L4 evidence, chains and cleanup |
-| `artex` | Clean-room ARTEX-style objective/surface/primitive/proof methodology; no upstream code or binaries |
-| `strix` | Parallel recon lanes and evidence merge over a bounded swarm |
-| `cyber-strike-ai` | Plan mode, mission JSON, budgets and stop conditions |
-
-These are first-party text files in `src/builtin_skills.cpp`. The names are
-compatibility shorthand for a workflow, not an audit or endorsement of any
-upstream project, and the built-ins deliberately contain no executable content.
-If you need a specific upstream ARTEX tree, audit and stage that tree yourself;
-this repository does not ship it.
-
-`examples/skills/` has two working disk packs: `console-notes` and
-`file-audit` (with a bundled `report-template.md`).
-
-## Building for the PS5
-
-The real agent, not the bring-up probe. `make -C platform/ps5` cross-compiles
-every source in `src/` plus `platform/ps5/console_compat.cpp` twice — once as
-PIE for elfldr, once as a fixed-address ET_EXEC for `make_fself.py` — and emits
-one installable title folder:
-
-```
-PHAR00001/
-  eboot.bin            fake SELF built from harness.elf
-  harness.elf          the real agent ELF, for elfldr
-  sce_sys/param.sfo    generated SFO binary (real header, entry table, keys)
-  sce_sys/icon0.png    generated 512x512 PS5-style tile (white H, blue bridge)
-  sce_sys/param.json   metadata for installers that stage JSON instead
+```bash
+PS5_PAYLOAD_SDK="$PWD/.deps/ps5-payload-sdk" \
+LLVM_CONFIG=/opt/homebrew/opt/llvm/bin/llvm-config \
+PATH=/opt/homebrew/opt/llvm/bin:$PATH \
+make release
 ```
 
-The agent links PacBrew's static libcurl 8.18.0 and OpenSSL 3.5.2 (plus zlib,
-zstd and libpsl) for the payload SDK's libc. The target build adds the console's
-CA bundle, the `SO_NBIO` socket mode and an `fcntl` wrapper for sandboxed
-sockets. The SDK libc already provides the resolver and libc symbols native
-titles had to stub, so those are not redefined here.
+The release bundle contains the package, payload, examples, config, licence
+notices, and start guide. It excludes build output, local configs, keys,
+sessions, and internal reports. Check `SHA256SUMS` before you install it.
 
-`harness.elf` is **ET_DYN**: elfldr only spawns PIE payloads, and an ET_EXEC
-image fails at spawn. `eboot.bin` is built from a second, non-PIE link because
-`make_fself.py` rejects ET_DYN. `ps5_package_test` asserts the loader form.
+## Verification
 
-At startup the agent probes online CPUs, visible memory, rlimits and every
-mount, then derives its runtime budget: one tool worker per usable CPU, buffered
-responses from a sixteenth of visible memory, and download capacity from the
-destination filesystem minus a reserve. `tests/runtime_test.cpp` and the e2e
-suite fail if those stop following the probe. `harness --resources` shows the
-same numbers on the host.
+This table separates what the current tree checks from what needs more work.
+Detailed console evidence is in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
+The security model is in [`docs/SECURITY.md`](docs/SECURITY.md).
 
-`make -C platform/ps5 bringup` still builds the old diagnostic probe separately;
-it is not the package artifact. `platform/ps5/BUILD.md` records the SDK and
-PacBrew pins, artifact hashes, the shims and the console commands.
+| Area | Status | Evidence |
+|---|---|---|
+| Host build and test suite | Verified | `make` and `make test` cover policy, paths, runtime, server, tools, skills, sessions, missions, and e2e provider paths. |
+| On-console local model | Verified on console | The built-in llama.cpp runtime loaded a 532,517,120-byte Qwen3.5-0.8B GGUF, answered with no key in 32.0 s, and called `fs_list` in a 14.5 s turn against the real directory. See [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md). |
+| Runtime model switch | Verified on console | Build `0.1.0-71b39c7` started with `zai-org-glm-5-1`; the Model panel applied `deepseek-v4-1-flash-uncensored` at `https://api.venice.ai/api/v1` without a restart. The console log says `provider served model deepseek-v4-1-flash-uncensored`; one Venice completion used 3,188 tokens. |
+| Real DeepSeek tool use | Verified on host | Figure 1 visibly shows the `tool skill`, `tool swarm`, `tool env_info`, and `delegate` calls. |
+| Skill use | Verified on host | Figure 1 shows the `tool skill` call for `local-architect` before the swarm starts. |
+| Console tool surface | Verified in prior hardware runs | `env_info`, `fs_tree`, `file_info`, `fs_strings`, skills, edits, delegation, plan mode, and package checks are recorded in `docs/CONSOLE-REPORT.md`. |
+| Console model picker | Verified on console | The console serves the new panel on the single harness listener at port 8792. Legacy listeners on 8789/8790/8791 were retired. The panel switched the live process to DeepSeek and completed a real Venice turn with 3,188 tokens; see Figures 2 and 3. |
+| Console driver | Verified on host | `console_ui_test` drives navigation, field entry, a model apply, a composer send and a 15-step flow, and checks that a mismatch stops at its own index. A live `--serve` turn with a stub provider called `screen_press {"button":"r1"}` and `/api/ui` then reported panel `tools`, focus `rail:tools`, driving true. `--ui-flow` runs the same executor with no model. `server_test` reports `model:id` through the page path and checks `/api/ui` moves to that panel without claiming the agent is driving. No console run yet. |
+| Rest-mode resume | Host simulation only | `server_test` covers `SIGCONT`, network gating, and listener rebind. A real rest-mode suspend is not tested on hardware. |
+| Real controller and dictation | Not tested on hardware | Browser input paths are covered by host and reconnect tests. No physical controller or microphone was used. |
+| Packaged title launch | Not verified | The packaged `PHAR00001` title was not installed or launched from the home row. |
 
-### Rest mode
+Figure 1 is a prepared figure. It combines six crops from two real screenshots:
+five from the host transcript and one from the console. The two screenshots are
+separate sessions. The top crop shows the user request. The detail crops repeat
+the key request at a larger size. The console Model-panel crop shows the model
+ID. The bottom crop shows the tool, skill, swarm, and delegate calls.
+Figures 2 and 3 come from the deployed console. The console started with
+`zai-org-glm-5-1`, switched to `deepseek-v4-1-flash-uncensored` through the Model
+panel, and completed one real Venice turn. The console log names the served
+model, and the turn used 3,188 tokens in one step. The cleanup retired the old
+8789, 8790, and 8791 listeners by PID. Port 8792 is now the only harness
+listener. The console did not re-run the full two-lane swarm, so Figure 1 is not
+a console performance result. The pass removed the temporary key file.
 
-**Yes for a suspended userland process, no for a terminated process or a reset
-jailbreak.** The harness is still an elfldr payload, not a background service,
-but the serving process now has a resume path:
+## Known limits
 
-- `platform/ps5/Makefile` builds `harness.elf` as an ET_DYN payload loadable by
-  elfldr on port 9021; arguments still come from a `file:` URI.
-- `src/main.cpp` is the process entry. `--call`, `--tools`, `--resources`, a
-  normal prompt and `--plan` all return. Only `--serve` stays alive, and only
-  because the user explicitly launched a LAN listener; it is not started by the
-  title path or by rest mode.
-- On current PS5 homebrew reports, rest mode freezes a userland payload rather
-  than killing it. The memory and open files survive, but the system closes the
-  listening sockets and the LAN interface disappears and returns. A new IP is
-  possible. The process is not executing while the console is asleep.
-- `src/server.cpp` uses one `poll()`-driven listener loop for HTTP, HTTPS and UDP
-  discovery. It detects `SIGCONT`, a wall-clock jump of at least five seconds,
-  or a change in the non-loopback IPv4 address set. It keeps the existing
-  sockets in the poll set while the network recovers, then closes and binds the
-  same ports again once the network is ready. Network checks are bounded at one
-  second; bind failures back off at 2s, 4s, 8s, 16s and a 30s cap. A second
-  resume resets that wait, so a failed first attempt is not permanent.
-  `/api/health` exposes `listener_generation` so a successful resume is
-  observable. The browser's existing retry/banner path reconnects on the same
-  origin, or accepts a new address after DHCP changes.
-- Every `/api/*` call still needs the bearer token, while the page, tile icon
-  and `/.well-known/ps5h` discovery document are public read-only surfaces.
-  `src/http.cpp` is still the outbound libcurl client. `docs/SECURITY.md`
-  records the listener rule and the token boundary.
-- Ports 9021 (elfldr) and 8888 (web file manager) are separate userland
-  processes. They may also lose their listening sockets in rest mode; the
-  harness cannot repair them. In particular, elfldr may be unreachable after
-  wake even if the harness process survived.
+- The payload has no native on-console window. The browser workspace and the
+  home-screen tile are the user interface.
+- The browser controls the browser's own keyboard, mouse, controller, and
+  microphone. Peripherals paired only to the console are not forwarded.
+- The console driver operates the harness surface, not the PS5 system software.
+  It has no pixel capture and no HID output, so it cannot press buttons inside
+  the firmware's own menus.
+- A rest-mode suspend may keep the process and session but close its sockets.
+  The server rebinds after network recovery, a wall-clock jump, or `SIGCONT`.
+  If the firmware ends the process or resets the jailbreak, relaunch it.
+- The model picker changes the primary model. Child agents use the startup
+  configuration. Restart after a model change if you use delegation or swarms.
+- The general policy rejects private and loopback model endpoints. Use a
+  public HTTPS endpoint for cloud mode. The built-in local mode is the one
+  narrow loopback exception: exact loopback host, explicit port, `/v1` path,
+  and no key. The test hook for other loopback cleartext exists only in test
+  builds.
+- A local LAN page is not an internet service. Use a trusted network and a
+  fixed, strong token.
+- The console validation covers one direct model turn and a runtime switch, not
+  a full console swarm. Run your own bounded mission before relying on swarm
+  performance on the console.
+- The consolidated 8792 listener is the only harness listener left running. Its
+  temporary provider key was removed, so it still serves the panel and the
+  persisted DeepSeek selection, but a new provider turn needs a key supplied
+  through the Model panel.
 
-No tool call, skill, edit or model turn can execute while the console is asleep.
-If rest mode kills the harness or resets the jailbreak, re-run the exploit if
-required and launch `harness.elf` again; the saved session resumes and the home
-tile is re-registered on that launch when auto-install is enabled and the tile
-was not removed. There is no wake-on-LAN, scheduler or background-service path
-here, and installing `eboot.bin` as a title does not add one. **No separate
-payload is needed for the suspend case.** A separate resident payload or
-kernel/loader hook would only be relevant if the process is actually
-terminated; it is not implemented in this repository. Use
-[`docs/RECOVERY.md`](docs/RECOVERY.md) for the wake, re-jailbreak and relaunch
-sequence.
+## More documentation
 
-Remaining:
-
-1. Install `eboot.bin` as a title and check the fake-SELF `--paid`/`--ptype`
-   values and the SFO key set against your loader. A title launch supplies no
-   argv or environment, so the runnable path is currently the `file:` URI on
-   elfldr with `--config`/`--prompt`.
-2. Record the firmware and exploit/loader versions, then repeat the run on the
-   firmware you intend to support.
-3. Test USB writes and an app-sandbox write; only `/data`, `/data/homebrew` and
-   `/user` were written from the payload path.
-
-## Status
-
-Verified on the host:
-
-- Clean build, `-Wall -Wextra`, no warnings
-- `make test`: policy-surface, core, resources, runtime (CPU/fd/memory/free
-  space budget, parallel executor), hardening (paths, redaction, sha256,
-  streaming download with resume/verify, body cap, URL policy, deadlines),
-  agent-profile, skill, recon, mission, session/compaction, power-tool and
-  browser-server tests, a headless-Chrome reconnect test, PS5 package
-  validation and end-to-end provider suites
-- Suite passes under `-fsanitize=address,undefined`
-- 20,000-iteration ASan/UBSan fuzz runs on the JSON parser, manifest compiler,
-  recon header/string/tree surface and mission parser; the recon and mission
-  host tests also pass sanitized. On macOS, where ASan has no LeakSanitizer,
-  `make leaks-check` reports zero leaked bytes for both new fuzz drivers
-- Plugin ABI v2: an out-of-tree `.so` loads, registers and runs
-- **Local agent profiles**: schema/path-confinement tests pass; the end-to-end
-  CLI test proves a profile's system prompt, model, temperature and token cap
-  reach the provider request, and `--list-agents`/`--agent-info` work without a
-  model call
-- **Delegation**: a parent stub conversation calls `delegate`; the child profile
-  runs with the parent's tools and policy, a denied read outside the parent root
-  proves the inherited guard, and the result returns to the parent. The suite
-  also covers max-depth refusal, exact step/token refund accounting, explicit
-  `--model`/`--max-steps` precedence, unknown profiles, self-delegation,
-  policy-key rejection and budget exhaustion
-- **Skills and targeted edits**: `skills_test` covers frontmatter, listing,
-  bundled resources, traversal, symlink and secret-name refusal, plus the
-  embedded packs and disk-override precedence; the e2e CLI test lists and
-  loads a skill, reads its resource, edits one unique match, refuses an
-  ambiguous match, applies `replace_all`, refuses a write outside the roots,
-  and asserts that a delegated child's tool schema still carries `skill` and
-  `fs_edit`
-- **Local recon, plan mode, swarms and missions**: `recon_test` covers ELF,
-  Mach-O and PE identification, truncated and hostile headers (including PE
-  offsets that wrap in 32-bit arithmetic), capped strings, bounded trees,
-  symlink handling, secret-name denial, mount filtering and non-finite numeric
-  arguments; `mission_test` covers valid/invalid missions, duplicate ids,
-  width/step/budget caps, missing files and non-finite budgets. The e2e suite proves
-  plan mode sends no mutating tool schema and cannot create a file, a mission
-  runs a single step then a two-lane swarm with the first answer as context,
-  and a nine-lane swarm is refused before any child starts
-- Live HTTPS call through a manifest to `archive.org/advancedsearch.php`
-- **Full provider round trip** through the test build of the CLI
-  (`build/harness_e2e`, same sources plus the test hook) against a local
-  OpenAI-compatible stub: user turn → assistant `tool_calls` → tool result with
-  the matching `tool_call_id` → second provider call that resends the history →
-  final assistant message. Malformed JSON and a truncated response end the turn
-  with a clean error; an unknown tool becomes a tool-level error the loop
-  recovers from; the tool deadline returns without waiting for the abandoned
-  handler
-- **Real agent cross-build**: `make -C platform/ps5` compiles all `src/*.cpp`
-  (including the browser server, session, power tools and embedded UI) plus the
-  console glue, links PacBrew libcurl/OpenSSL, and emits a PIE `harness.elf` for
-  elfldr plus a fake-SELF `eboot.bin` from a separate non-PIE link (SDK v0.45,
-  LLVM 23.1.4 on macOS). The SDK wrapper needs the host LLVM tools on `PATH`
-  (for example `PATH=/opt/homebrew/opt/llvm/bin:$PATH`).
-- **Browser workspace**: the token-auth server, static page, state/history
-  routes, a full stub-backed turn, transcript persistence across restart and
-  context compaction are covered by host tests and a live loopback smoke test
-- **Connection recovery and discovery**: `server_test` checks the public
-  `/.well-known/ps5h` document, the UDP responder without a token, a `SIGCONT`
-  resume with the network gated down (HTTP/UDP still answer while waiting),
-  then the rebind and a second resume; a loopback smoke run exercised
-  `tools/ps5h-discover.py` through both UDP and the TCP fallback. The HTTPS
-  listener resume and the reconnect banner/address hand-off are exercised in
-  real headless Chrome by `make reconnect-test`.
-- **PS5 package validation**: `ps5_package_test` parses the SFO and icon from
-  disk, checks the fSELF magic and the agent ELF header, and passes on the
-  package above
-- **Runtime scaling**: `runtime_test` fails if worker count stops tracking
-  online CPUs or the fd limit, if the buffered response stops scaling with
-  memory, or if download capacity ignores free space/`RLIMIT_FSIZE`; the e2e
-  suite proves parallel tool calls use the budgeted executor
-- **Resource probe on the host**: `resources_test` asserts CPU, page size,
-  physical memory, mount enumeration and report formatting; `harness
-  --resources` prints this Mac's profile
-
-> **Historical evidence.** The bullets below describe earlier builds and
-> captures on 2026-11-18, not the current `0.1.0-tile` process. The initial run
-> window was ≈09:18–12:05 local; the legacy 16:18 capture and the current
-> 17:06 PID recheck and 17:14 service recheck are identified in their bullets.
-> Exact per-build times were not recorded, and early launch PIDs were not
-> recorded unless stated. The only current live evidence is the **Home-screen
-> tile and PS5 chat** bullet; its values were rechecked at 17:14 PST.
-
-Verified on the console (2026-11-18; core checks `0.1.0-fd5d0ae`, local agents
-`0.1.0-4d7499f`, delegation `0.1.0-c0f76b5`, skills and edits `0.1.0-653d046`,
-recon/plan/swarm/mission `0.1.0-e0b6af4`, parser-hardening rebuild
-`0.1.0-e6b6205`, final LAN workspace `0.1.0-final`, browser input layer
-`0.1.0-input`, HTTPS browser workspace `0.1.0-https`):
-
-- **Home-screen tile and PS5 chat** — `0.1.0-tile` is the current browser
-  workspace. At startup it writes `/data/homebrew/HARN00001` from the console's
-  staged web shell (`/data/ps5h-web-shell.bin`, originally
-  `/system_ex/app/NPXS40106/eboot.bin`), `sce_sys/param.json` and a generated
-  512×512 `icon0.png`, all at `0777`. Payload processes run as
-  uid 1 and cannot read `/system_ex` directly, so the exact console shell is
-  staged at `/data/ps5h-web-shell.bin` and used as the copy source. At the
-  17:14 PST recheck the current probe returned HTTP 200 with `status:0`;
-  ShadowMountPlus reports the tile installed and registered, and the Home screen
-  panel supports Add, Check and Remove. Removal deletes the tile
-  folder, leaves `.ps5h-home-tile-removed`, uninstalls and rescans; a re-add
-  restores it. The release keeps the plain HTTP 8791 and HTTPS 8790 listeners,
-  a second same-artifact HTTP 8789 companion, the bearer gate and all 20 tools.
-  The exact current `/data/harness.elf` downloaded from the console is
-  **9,898,288 bytes**, sha256
-  `f47fe099b7cb919561d2990dc67ff9c61f350a69a2397c4273c2ce8c6731e9e6`.
-  At the live capture on 2026-11-18 17:00–17:14 PST, after a full power cycle,
-  the primary process was PID 103 on 8791/8790; the 8789 companion was PID 107.
-  `SIGSTOP` on PID 103 made 8791 and 8790 return `000` while 8789 stayed **200**;
-  after `SIGCONT`, both main ports returned **200** and 8789 remained **200**.
-  A separate stop test on PID 107 made 8789 return `000` while 8791 stayed
-  **200**, and 8789 returned **200** after resume. A 17:06 PST `ps5h-live`
-  recheck listed the same PIDs 103/107 and all three ports returned **200**; no
-  second stop test was run because these were the already-tested processes. A
-  final non-destructive check at 17:14 PST again returned **200** on all three.
-  The
-  earlier 2026-11-18 16:18 PST capture used PID 467 and a legacy input instance
-  PID 302 on 8789;
-  that is historical, not the current process. The console has no `/proc`, so the separate
-  process-image hash is not observable; provenance is the launch path,
-  PID/port ownership and executable file hash. The 16:26 outage was cleared by
-  the 16:59 power cycle, and the current process was relaunched at 17:00.
-  At 17:14 PST the current on-console tile folder has `eboot.bin` (5,211,435 bytes), `sce_sys/param.json`
-  (333 bytes) and a 1,049,236-byte 512x512 RGBA `icon0.png`, all mode `0777`.
-  The actual home-screen row was not observed from this remote session; the tile
-  is verified through ShadowMountPlus and the app state. Full details are in
-  [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
-- **Browser workspace, input and HTTPS** — historical `0.1.0-https` (source
-  commit `d45b323`; exact capture time not recorded) served the 53,581-byte UI
-  over **HTTPS on 8790** (`200`), while the then-retained **HTTP 8789**
-  input-build listener and the then-new **HTTP 8791** listener both answered at
-  that historical release. The HTTPS certificate chain validates with
-  `curl --cacert <client-copy-of-ps5h-cert.pem>`; unauthenticated `/api/state` is `401` on
-  both schemes, and the authenticated state reports build `0.1.0-https` with all
-  20 tools and the unchanged 12-message session (7,611 context chars, three
-  compactions). A real browser on the console HTTPS origin reported
-  `window.isSecureContext: true`; clicking the mic button made exactly one
-  `getUserMedia` call and left Chrome's microphone permission at `prompt` under
-  “Preparing microphone…”, with no guidance fallback. With the permission granted
-  and a mocked final speech result, `dictated text` landed at the caret in the
-  composer and no page errors occurred. On the HTTP origin the same click
-  reported `HTTPS or localhost required`, opened the guidance, and made zero
-  microphone calls. At that historical `0.1.0-https` release (2026-11-18;
-  exact clock time not recorded) `/data/harness.elf` was **9,761,576 bytes**, sha256
-  `965d89549d80fb28e70f29cd54a8f05f5942e8d7c2d8b18485084696f3fb1d6b`
-  (not the current artifact; see the current tile item above).
-  The certificate and trust steps are in
-  [HTTPS and microphone trust](#https-and-microphone-trust); measured counters
-  are in [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md).
-- **Boot and resources** — `harness.elf` starts under elfldr, writes
-  `/data/ps5-harness-agent.log` and exits cleanly. The log records 16 online
-  CPUs, 2185 MiB visible memory, `nofile 13952/13952`, 342 GiB free on `/data`,
-  and `workers=16 buffered=136 MiB file-read=4 MiB`.
-- **TLS** — `https://example.com/` returned 200 through the agent's static
-  libcurl; `https://expired.badssl.com/` failed with a peer-certificate error,
-  so verification was on.
-- **`dlopen`** — the example plugin built with the SDK header loaded from
-  `/data`, registered `hello_echo` and returned a result.
-- **Writes** — `/data`, `/data/homebrew` and `/user` all wrote and read back.
-- **Local agents** — on `0.1.0-4d7499f`, `--list-agents` read the archivist and
-  maintainer profiles staged in `/data/homebrew`; `--agent-info` resolved the
-  inline archivist prompt and the maintainer's `system_prompt_file`; overwriting
-  `archivist.json` on the console changed the next `--list-agents` output to v2
-  with no rebuild.
-- **Delegation** — on `0.1.0-c0f76b5`, the log recorded the new build,
-  `--tools` listed `delegate`, both profile commands still resolved (including
-  `delegation_max_depth=2`), and `--call delegate` with a missing profile failed
-  closed and logged `delegate ! ... cannot load agent`. No provider key was
-  staged, so a delegated model turn was not run on hardware; the host e2e suite
-  covers that path.
-- **Skills and targeted edits** — on `0.1.0-653d046`, `--tools` listed 9 tools
-  including `skill` and `fs_edit`; two packs staged under
-  `/data/homebrew/skills` listed and loaded, and a bundled resource returned its
-  contents. `../../etc/hosts` as a skill resource and an `fs_edit` on
-  `/etc/hosts` were both refused. `fs_edit` changed one occurrence, a read-back
-  returned `alpha new omega`, and a two-match edit was refused until
-  `replace_all` was set. `--agent-info` printed
-  `skills_dir=/data/homebrew/skills`.
-- **Recon, plan, swarm and mission** — on `0.1.0-e0b6af4`, `--tools` listed 14
-  tools with the plugin and `--plan --tools` listed 9 read-only tools (the
-  current tree has six more built-ins and 12 read-only tools); a plan
-  call to `fs_write` returned `unknown tool: fs_write` and created nothing.
-  `env_info` reported `platform=ps5`, 16 CPUs, 2291924992 visible bytes, 17
-  system mounts after filtering 1055 `/mnt/sandbox/...` entries, and the
-  configured roots/skills directory. `fs_tree /data` marked the harness config
-  and logs `denied`; `file_info /data/harness.elf` returned ELF64, x86-64,
-  `ET_DYN` and the uploaded hash; `fs_strings` returned bounded strings. All six
-  built-ins and both disk packs listed, and
-  `reverse-engineer-anything` loaded its text. A nine-lane `swarm --call` was
-  refused before spawning; a one-step mission with a missing profile parsed,
-  ran, and returned `ok:false` at step `one`. On the `0.1.0-e6b6205` rebuild, a
-  hostile PE header (`e_lfanew = 0xffffffff`) returned `signature:false`,
-  `fs_tree` clamped `depth:1e999` to 8, and a mission with `max_steps:1e999`
-  was rejected before execution. No provider key was staged, so no model-driven
-  plan, swarm or mission turn ran on hardware.
-- **Resume** — a 10 MiB transfer seeded with a 1 MiB `.part` was served as
-  Range (`206`), finished at exactly 10,485,760 bytes and matched its sha256.
-- **1 GB transfer** — on `0.1.0-fd5d0ae`, a 1 GiB OVH transfer seeded with a
-  1,000 MiB prefix resumed with Range (`206`), reached exactly 1,073,741,824
-  bytes, matched its expected sha256 in the agent, and renamed into place; no
-  `.part` remained.
-- **Free-space cap** — a 10 MB request on the 2 MiB `/mnt` tmpfs stopped after
-  1.71 MB with `download exceeds the configured byte limit`.
-
-`docs/CONSOLE-REPORT.md` has the transcript, both defects the run exposed (the
-ET_EXEC spawn failure and a 64 KiB stack buffer in the digest path), and the
-local-agent run.
-
-### Funded provider capability turns — 2026-11-19
-
-On release build `0.1.0-8c4903b`, all five paths were run against the funded
-Venice endpoint `https://api.venice.ai/api/v1` from a LAN host. The temporary
-key lived at `/data/ps5h-secrets/api-key`; the test config used
-`model.model = "zai-org-glm-5-1"` and `max_steps = 12`. The successful
-tool-choice turn used `model.max_tokens = 2048`; after delegation consumed the
-shared pool, the test config was raised to `16384` for the remaining turns. The
-short-lived child profiles were `probe-scout` and `probe-mapper`; the proof file
-contained exactly `TOOL_CHOICE_PROOF_20261119` plus a newline. The key, config,
-profiles, session files and proof file were deleted after the run.
-
-| Path | Route | Provider result | Steps | Prompt / completion / total | Activity actually exercised |
-|---|---|---|---:|---:|---|
-| Tool choice | `/api/chat` | exact proof file content | 2 | 5,943 / 70 / 6,013 | `tool fs_read {"path":"/data/homebrew/ps5h-proof-tool.txt"}`; tool result `TOOL_CHOICE_PROOF_20261119\n` |
-| Plan | `/api/chat` with `--plan` | exact content plus a read-only proposal | 2 | 5,071 / 202 / 5,273 | 12 read-only tools; `tool fs_read`; no write tool loaded |
-| Delegation | `/api/chat` | delegated answer returned verbatim | 2 | 6,083 / 105 / 6,188 | `tool delegate` -> `probe-scout`, child 2 steps / 5,915 tokens, child `fs_read` |
-| Swarm | `/api/chat` | both lane answers returned | 2 | 6,263 / 246 / 6,509 | `tool swarm`, width 2; `probe-scout` 2 steps / 5,915 tokens with `fs_read`; `probe-mapper` 2 steps / 6,296 tokens with `fs_list` |
-| Multi-step mission | `--mission` CLI | `ok: true`, both steps completed | 2 mission steps | step `read`: 2 / 5,945; step `follow`: 3 / 10,087 | `fs_read` in step 1; `fs_list` and `fs_read` in step 2, with the first answer carried into the second task |
-
-The host sent these exact `/api/chat` messages (the mission used the two tasks
-quoted in its step results):
-
-```text
-Tool choice: Use the fs_read tool on /data/homebrew/ps5h-proof-tool.txt and report the exact file content. Do not answer without calling fs_read.
-Plan: In read-only plan mode, use fs_read on /data/homebrew/ps5h-proof-tool.txt and report its exact content. Then propose one read-only next step. Do not write or modify anything.
-Delegation: Use the delegate tool exactly once. Call delegate with profile "probe-scout" and task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." After it returns, report the delegate answer verbatim. Do not use fs_read yourself.
-Swarm: Use the swarm tool exactly once with two lanes. Lane 1: profile "probe-scout", task "Use fs_read on /data/homebrew/ps5h-proof-tool.txt and answer with its exact content." Lane 2: profile "probe-mapper", task "Use fs_list on /data/homebrew and report whether ps5h-proof-tool.txt appears." Do not inspect the files yourself; report both lane results.
-```
-
-The actual final answers were:
-
-- Tool choice: the model returned the exact file content
-  (`TOOL_CHOICE_PROOF_20261119`) after calling `fs_read`; `/api/history`
-  contained the assistant `tool_calls` entry and the matching tool message.
-- Plan: the model called `fs_read`, returned the exact content, and proposed
-  `file_info` as a read-only next check. It did not call a write tool; the
-  plan-mode tool list was `fs_list, fs_read, skill, env_info, fs_tree,
-  file_info, fs_strings, fs_search, hexdump, sysctl, delegate, swarm`.
-- Delegation: the parent called `delegate` once with `profile: probe-scout`;
-  the child reached the provider, called `fs_read`, and returned
-  `TOOL_CHOICE_PROOF_20261119`. The parent's answer repeated it verbatim.
-- Swarm: the parent called `swarm` once with two lanes. Lane 1 returned the
-  exact content; lane 2 reported that `ps5h-proof-tool.txt` appears in
-  `/data/homebrew` at 27 bytes. The parent reported both results.
-- Mission: the funded CLI run logged `mission start name=provider-proof-mission
-  steps=2`, `mission step=read profile=probe-scout` and `mission step=follow
-  profile=probe-mapper`, then returned `"ok": true` with both step results and
-  their token counts.
-
-**Model selection finding.** The first funded tool-choice attempt used
-`venice-uncensored-1-2`. It completed a provider turn (1 step, 3,136 prompt /
-21 completion tokens) but put the intended arguments in assistant text as
-`{"path": "/data/homebrew/ps5h-proof-tool.txt"}`, with no `tool_calls`; no
-tool ran. A direct `/chat/completions` probe reproduced this,
-while `zai-org-glm-5-1` emitted a real OpenAI-style `tool_calls` entry. The
-capability run therefore uses `zai-org-glm-5-1`; this is a provider model
-capability difference, not a harness downgrade.
-
-**Mission route limitation.** `/api/chat` cannot run a mission: `src/main.cpp`
-explicitly rejects `--serve` together with `--mission` (line 1024), so the
-funded multi-step mission above used the CLI `--mission` runner. The mission
-itself is real-provider and multi-step; exposing it through `/api/chat` would
-need a separate mission entry point.
-
-Not verified or not built:
-
-- **Rest-mode resume is not hardware-tested.** No payload executes while the
-  console is asleep. The new listener supervisor keeps working listeners while
-  the network is down, survives a frozen process and rebinds after `SIGCONT`,
-  a wall-clock jump of at least five seconds, or a change in the non-loopback
-  IPv4 address set; this was tested with `SIGCONT` and a gated network on the
-  host, not by suspending
-  this console. If the firmware terminates the process or resets the jailbreak,
-  manual re-jailbreak and relaunch are still required.
-- **The recovery path is not console-tested in this change.** Discovery,
-  fixed-token/session relaunch, a changed `--serve` port and the home-tile
-  rewrite still need a hardware run using [`docs/RECOVERY.md`](docs/RECOVERY.md).
-  The page's lost-connection banner, same-origin automatic recovery, changed
-  origin with token carry and transcript reload, and stale-token login are
-  covered by `make reconnect-test` against local harnesses, not the console.
-- **The packaged PHAR00001 title is uninstalled.** The packaged `eboot.bin` was
-  not installed or launched from the shell; the separate HARN00001 home-screen
-  tile is installed and registered (current evidence above), but it was not
-  tapped from the home row. The packaged fake SELF, SFO key set and
-  `--paid`/`--ptype` values still need a loader. A title launch also supplies no
-  argv or environment, so the `file:` URI remains the runnable route.
-- **Firmware and exploit versions are unrecorded.** No shell was available to
-  query them.
-- **USB and app-sandbox writes are untested.** No USB device was present and
-  there was no title sandbox.
-- **Peak memory during a 1 GB transfer is unmeasured.** The path streams in
-  fixed chunks and the agent hashed the full 1 GiB file in 8 KiB chunks, but no
-  RSS figure was captured on the console.
-- **CI is green on both runners.** The Ubuntu and macOS jobs build, run the
-  complete host suite, execute the browser reconnect test against local
-  HTTP/HTTPS harnesses, and pass the plugin smoke test. CI also covers the
-  Linux mount-enumeration path; the browser test's changed-address leg used a
-  different loopback host and port on Ubuntu, with a port-only fallback on the
-  macOS runner where the alias was unavailable.
-- **Provider turns were driven over LAN HTTP, not the on-console browser UI or
-  a phone.** The five capability turns used the authenticated `/api/chat`
-  endpoint or the CLI mission runner from a host; the browser UI's provider
-  path and a phone session were not re-run in this capability test.
-- **Browser input has no hardware controller or real dictation test.** A
-  Chromium browser loaded the historical `0.1.0-https` console HTTPS page, and the same test
-  exercised the legacy HTTP fallback, the physical keyboard, mouse/OSK,
-  synthetic DualSense, touchpad pointer and mocked speech paths. The HTTPS test
-  profile bypassed the self-signed warning; the certificate was not installed in
-  a normal browser profile, so the documented trust step is not itself tested.
-  No controller was physically paired to the test browser, no real microphone
-  recognition ran, and console-paired peripherals are not forwarded. Session-file
-  persistence on the console is verified (12 messages after restart). The
-  provider smoke test above used the console `/api/chat` endpoint from a LAN
-  host, not the on-console browser UI or a phone. There is still no native
-  on-console window; `icon0.png` and the title metadata are the shell-facing
-  surface.
-- **No elevation helper**, so writes reach only what the process can already
-  open.
-
-## Roadmap
-
-1. First console boot, TLS and `dlopen` proofs (P2–P3).
-2. A launch path that supplies config, prompt and the model key to the title.
-3. Manifest registry with an index and trust tiers (P5).
-4. Console-side browser workspace validation: launch `--serve`, bind the LAN
-   address from the payload, persist a session under `/data`, and drive one
-   model turn from a phone. (P6)
-5. Elevation helper for `/data/homebrew` writes (P4).
+- [`docs/SECURITY.md`](docs/SECURITY.md) — assets, adversaries, invariants, and
+  secret handling.
+- [`docs/CONSOLE-REPORT.md`](docs/CONSOLE-REPORT.md) — console runs, artifacts,
+  hashes, and hardware evidence.
+- [`docs/RECOVERY.md`](docs/RECOVERY.md) — lost connections, restarts, address
+  changes, and stale tokens.
+- [`docs/LOCAL-MODEL.md`](docs/LOCAL-MODEL.md) — in-process model design,
+  build inputs, console measurements, and limits.
+- [`docs/RELEASE.md`](docs/RELEASE.md) — release contents and verification.
+- [`platform/ps5/BUILD.md`](platform/ps5/BUILD.md) — payload SDK and LLVM build.
+- [`docs/AUDIT.md`](docs/AUDIT.md) — defects that produced the current rules.
 
 ## License
 

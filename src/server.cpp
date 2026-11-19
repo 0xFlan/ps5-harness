@@ -1,6 +1,8 @@
 #include "ps5h/server.h"
 
 #include <arpa/inet.h>
+
+#include "ps5h/console_ui.h"
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -16,7 +18,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -71,6 +75,14 @@ struct Shared {
   const ActivityLog* activity = nullptr;
   LogFn log;
   std::mutex chat;
+  // /api/chat holds `chat` for a whole turn. This flag lets the console
+  // surface report a running turn without trying to take that lock.
+  std::atomic<bool> busy{false};
+  // The browser may switch providers between turns. Keep a copy that /api/state
+  // can read without waiting for a long provider turn, while the agent gets
+  // the authoritative update under chat.
+  mutable std::mutex model_mutex;
+  ModelConfig model;
   std::atomic<std::size_t> context_chars{0};
   std::atomic<std::size_t> message_count{0};
   std::atomic<std::size_t> compactions{0};
@@ -362,11 +374,282 @@ std::string one_line(const std::string& value, std::size_t limit) {
   return clip(out, limit);
 }
 
+Json model_json(const ModelConfig& model) {
+  Json out = Json::object();
+  out["base_url"] = model.base_url;
+  out["model"] = model.model;
+  out["local"] = model.local_model;
+  out["local_model_path"] = model.local_model_path;
+  out["local_model_port"] = model.local_model_port;
+  out["local_model_threads"] = model.local_model_threads;
+  out["local_model_context"] = model.local_model_context;
+  out["api_key_env"] = model.api_key_env;
+  out["api_key_file"] = model.api_key_file;
+  out["temperature"] = model.temperature;
+  out["max_tokens"] = model.max_tokens;
+  return out;
+}
+
+Json model_presets_json() {
+  auto preset = [](const std::string& id, const std::string& label,
+                   const std::string& base_url, const std::string& api_key_env,
+                   const std::string& model,
+                   const std::vector<std::string>& models, bool local) {
+    Json item = Json::object();
+    item["id"] = id;
+    item["label"] = label;
+    item["base_url"] = base_url;
+    item["api_key_env"] = api_key_env;
+    item["model"] = model;
+    item["local"] = local;
+    Json choices = Json::array();
+    for (const std::string& choice : models) choices.push_back(choice);
+    item["models"] = std::move(choices);
+    return item;
+  };
+  Json out = Json::array();
+  out.push_back(preset("local", "On-console (built-in)",
+                       "http://127.0.0.1:18081/v1", "", "local",
+                       {"local"}, true));
+  out.push_back(preset("openai", "OpenAI", "https://api.openai.com/v1",
+                       "OPENAI_API_KEY", "gpt-4o-mini",
+                       {"gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"}, false));
+  out.push_back(preset("venice", "Venice", "https://api.venice.ai/api/v1",
+                       "VENICE_API_KEY", "zai-org-glm-5-1",
+                       {"zai-org-glm-5-1", "venice-uncensored-1-2",
+                        "google-gemma-3-27b-it"}, false));
+  out.push_back(preset("openrouter", "OpenRouter",
+                       "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
+                       "openai/gpt-4o-mini",
+                       {"openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet",
+                        "google/gemini-2.0-flash-001"}, false));
+  out.push_back(preset("groq", "Groq", "https://api.groq.com/openai/v1",
+                       "GROQ_API_KEY", "llama-3.3-70b-versatile",
+                       {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"}, false));
+  return out;
+}
+
+bool field_has_controls(const std::string& value) {
+  for (unsigned char c : value) {
+    if (std::iscntrl(c) != 0) return true;
+  }
+  return false;
+}
+
+bool valid_env_name(const std::string& value) {
+  if (value.empty()) return true;
+  const unsigned char first = static_cast<unsigned char>(value[0]);
+  if (std::isalpha(first) == 0 && first != '_') return false;
+  for (unsigned char c : value) {
+    if (std::isalnum(c) == 0 && c != '_') return false;
+  }
+  return true;
+}
+
+bool read_key_file(const std::string& path, std::string* key,
+                   std::string* error) {
+  key->clear();
+  if (path.empty()) return true;
+  if (path.size() > 4096) {
+    *error = "api_key_file path is too long";
+    return false;
+  }
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (file == nullptr) {
+    *error = "cannot read api_key_file";
+    return false;
+  }
+  char buffer[8192];
+  std::size_t total = 0;
+  while (total < sizeof buffer) {
+    const std::size_t got = std::fread(buffer + total, 1, sizeof buffer - total, file);
+    if (got == 0) break;
+    total += got;
+  }
+  const bool failed = std::ferror(file) != 0;
+  const bool extra = std::fgetc(file) != EOF;
+  std::fclose(file);
+  if (failed || extra) {
+    *error = "api_key_file must be 1..8192 bytes";
+    return false;
+  }
+  while (total > 0 && (buffer[total - 1] == '\n' || buffer[total - 1] == '\r')) {
+    --total;
+  }
+  if (total == 0) {
+    *error = "api_key_file is empty";
+    return false;
+  }
+  key->assign(buffer, total);
+  return true;
+}
+
+bool apply_model_fields(const Json& input, ModelConfig* model,
+                        std::string* key_override, bool* key_changed,
+                        std::string* error) {
+  if (input.contains("base_url")) {
+    if (!input["base_url"].is_string()) {
+      *error = "base_url must be a string";
+      return false;
+    }
+    model->base_url = input["base_url"].as_string();
+  }
+  if (model->base_url.empty() || model->base_url.size() > 500 ||
+      field_has_controls(model->base_url)) {
+    *error = "base_url must be 1..500 characters without control characters";
+    return false;
+  }
+  std::string check_url = model->base_url;
+  if (!check_url.empty() && check_url.back() == '/') check_url.pop_back();
+  if (check_url.empty()) {
+    *error = "base_url must include a scheme and host";
+    return false;
+  }
+
+  if (input.contains("model")) {
+    if (!input["model"].is_string()) {
+      *error = "model must be a string";
+      return false;
+    }
+    model->model = input["model"].as_string();
+  }
+  if (model->model.empty() || model->model.size() > 200 ||
+      field_has_controls(model->model)) {
+    *error = "model must be 1..200 characters without control characters";
+    return false;
+  }
+  if (input.contains("local")) {
+    if (!input["local"].is_bool()) {
+      *error = "local must be true or false";
+      return false;
+    }
+    model->local_model = input["local"].as_bool();
+  }
+  if (input.contains("local_model_path")) {
+    if (!input["local_model_path"].is_string()) {
+      *error = "local_model_path must be a string";
+      return false;
+    }
+    model->local_model_path = input["local_model_path"].as_string();
+  }
+  if (model->local_model_path.size() > 4096 ||
+      field_has_controls(model->local_model_path)) {
+    *error = "local_model_path must be at most 4096 characters";
+    return false;
+  }
+  if (model->local_model && model->local_model_path.empty()) {
+    *error = "local_model_path is required for the on-console model";
+    return false;
+  }
+  if (input.contains("local_model_port")) {
+    if (!input["local_model_port"].is_number()) {
+      *error = "local_model_port must be a number";
+      return false;
+    }
+    const double value = input["local_model_port"].as_number();
+    if (!std::isfinite(value) || value < 1 || value > 65535 ||
+        std::floor(value) != value) {
+      *error = "local_model_port must be an integer between 1 and 65535";
+      return false;
+    }
+    model->local_model_port = static_cast<int>(value);
+  }
+  if (input.contains("local_model_threads")) {
+    if (!input["local_model_threads"].is_number()) {
+      *error = "local_model_threads must be a number";
+      return false;
+    }
+    const double value = input["local_model_threads"].as_number();
+    if (!std::isfinite(value) || value < 1 || value > 8 ||
+        std::floor(value) != value) {
+      *error = "local_model_threads must be an integer between 1 and 8";
+      return false;
+    }
+    model->local_model_threads = static_cast<int>(value);
+  }
+  if (input.contains("local_model_context")) {
+    if (!input["local_model_context"].is_number()) {
+      *error = "local_model_context must be a number";
+      return false;
+    }
+    const double value = input["local_model_context"].as_number();
+    if (!std::isfinite(value) || value < 512 || value > 65536 ||
+        std::floor(value) != value) {
+      *error = "local_model_context must be an integer between 512 and 65536";
+      return false;
+    }
+    model->local_model_context = static_cast<int>(value);
+  }
+  if (input.contains("temperature")) {
+    if (!input["temperature"].is_number()) {
+      *error = "temperature must be a number";
+      return false;
+    }
+    const double value = input["temperature"].as_number();
+    if (!std::isfinite(value) || value < 0.0 || value > 2.0) {
+      *error = "temperature must be between 0 and 2";
+      return false;
+    }
+    model->temperature = value;
+  }
+  if (input.contains("max_tokens")) {
+    if (!input["max_tokens"].is_number()) {
+      *error = "max_tokens must be a number";
+      return false;
+    }
+    const double value = input["max_tokens"].as_number();
+    if (!std::isfinite(value) || value < 0.0 || value > 32768.0 ||
+        std::floor(value) != value) {
+      *error = "max_tokens must be an integer between 0 and 32768";
+      return false;
+    }
+    model->max_tokens = static_cast<int>(value);
+  }
+  if (input.contains("api_key_env")) {
+    if (!input["api_key_env"].is_string()) {
+      *error = "api_key_env must be a string";
+      return false;
+    }
+    model->api_key_env = input["api_key_env"].as_string();
+  }
+  if (!valid_env_name(model->api_key_env)) {
+    *error = "api_key_env must be a valid environment variable name";
+    return false;
+  }
+  if (input.contains("api_key_file")) {
+    if (!input["api_key_file"].is_string()) {
+      *error = "api_key_file must be a string";
+      return false;
+    }
+    const std::string path = input["api_key_file"].as_string();
+    if (path.size() > 4096 || field_has_controls(path)) {
+      *error = "api_key_file must be a path without control characters";
+      return false;
+    }
+    std::string new_key;
+    std::string key_error;
+    if (!read_key_file(path, &new_key, &key_error)) {
+      *error = key_error;
+      return false;
+    }
+    model->api_key_file = path;
+    *key_override = std::move(new_key);
+    *key_changed = true;
+  }
+  return true;
+}
+
 Json state_json(const Shared& shared) {
   if (shared.home_tile) shared.home_tile->refresh_if_due();
   Json state = Json::object();
   state["build"] = shared.options.build_id;
-  state["model"] = shared.options.model;
+  ModelConfig model;
+  {
+    std::lock_guard<std::mutex> lock(shared.model_mutex);
+    model = shared.model;
+  }
+  state["model"] = model.model;
+  state["provider"] = model_json(model);
   state["mode"] = shared.options.plan_mode ? "plan" : "full";
   state["session_title"] = "Console workspace";
   Json tools = Json::array();
@@ -393,6 +676,114 @@ Json state_json(const Shared& shared) {
   state["events"] = shared.activity->snapshot();
   if (shared.home_tile) state["home_tile"] = shared.home_tile->state();
   return state;
+}
+
+// The agent's own screen, built from live state. Anything a running turn owns
+// is skipped rather than waited on: a tool call must never block on the turn
+// that is making it.
+ConsoleScreen console_screen(Shared& shared) {
+  ConsoleScreen view;
+  view.build = shared.options.build_id;
+  ModelConfig model;
+  {
+    std::lock_guard<std::mutex> lock(shared.model_mutex);
+    model = shared.model;
+  }
+  view.model = model.model;
+  std::string base = model.base_url;
+  const std::size_t scheme = base.find("://");
+  if (scheme != std::string::npos) base.erase(0, scheme + 3);
+  const std::size_t slash = base.find('/');
+  if (slash != std::string::npos) base.resize(slash);
+  view.provider = model.local_model ? "on-console (loopback)" : base;
+  view.mode = shared.options.plan_mode ? "plan" : "full";
+  view.busy = shared.busy.load();
+  {
+    std::unique_lock<std::mutex> lock(shared.chat, std::try_to_lock);
+    if (lock.owns_lock()) {
+      const Json& messages = shared.session->messages;
+      const std::size_t total = messages.size();
+      const std::size_t begin = total > 8 ? total - 8 : 0;
+      for (std::size_t i = begin; i < total; ++i) {
+        const Json& message = messages[i];
+        const std::string role = message["role"].as_string();
+        if (role == "system") continue;
+        view.transcript.push_back(role + ": " +
+                                  one_line(message["content"].as_string(), 150));
+      }
+      if (view.transcript.empty()) {
+        view.transcript.push_back("no conversation yet");
+      }
+    } else {
+      view.transcript.push_back("a turn is running; the transcript is being written");
+    }
+  }
+  const Json events = shared.activity->snapshot();
+  for (const Json& event : events.items()) {
+    view.activity.push_back(one_line(event.as_string(), 150));
+  }
+  for (const Tool& tool : shared.tools->tools()) {
+    view.tools.emplace_back(tool.name, one_line(tool.description, 80));
+  }
+  if (shared.home_tile) view.home_tile = shared.home_tile->state();
+  return view;
+}
+
+// Shared by POST /api/model and the console driver's Apply control so the two
+// cannot drift: one chat lock, one set of field rules, one URL policy.
+Json apply_model_request(Shared* shared, const Json& input, int* status) {
+  *status = 200;
+  auto refuse = [status](int code, const std::string& message) {
+    *status = code;
+    Json body = Json::object();
+    body["ok"] = false;
+    body["error"] = message;
+    return body;
+  };
+  std::unique_lock<std::mutex> chat_lock(shared->chat, std::try_to_lock);
+  if (!chat_lock.owns_lock()) {
+    return refuse(409, "a turn is already running");
+  }
+  ModelConfig updated = shared->agent->model_config();
+  std::string key_override;
+  bool key_changed = false;
+  std::string validation_error;
+  if (!apply_model_fields(input, &updated, &key_override, &key_changed,
+                          &validation_error)) {
+    return refuse(400, validation_error);
+  }
+  std::string endpoint_check = updated.base_url;
+  if (!endpoint_check.empty() && endpoint_check.back() == '/') {
+    endpoint_check.pop_back();
+  }
+  if (updated.local_model) {
+    std::string local_reason;
+    if (!local_model_endpoint(endpoint_check + "/chat/completions", &local_reason)) {
+      return refuse(400, "local model endpoint rejected: " + local_reason);
+    }
+  } else {
+    const UrlPolicy::Decision endpoint =
+        shared->options.policy.check(endpoint_check + "/chat/completions");
+    if (!endpoint.allowed) {
+      return refuse(400,
+                    "provider endpoint rejected by URL policy: " + endpoint.reason);
+    }
+  }
+  shared->agent->set_model_config(updated);
+  if (key_changed) {
+    shared->agent->set_api_key_override(key_override);
+  }
+  {
+    std::lock_guard<std::mutex> lock(shared->model_mutex);
+    shared->model = updated;
+  }
+  shared->options.model = updated.model;
+  shared->log("model switch -> " + updated.model + " @ " + updated.base_url);
+  Json body = Json::object();
+  body["ok"] = true;
+  body["current"] = model_json(updated);
+  body["presets"] = model_presets_json();
+  return body;
 }
 
 Json discovery_json(const Shared& shared) {
@@ -565,12 +956,163 @@ void handle_connection(int fd, Shared* shared) {
     return;
   }
 
+  // What the console driver sees, and what a browser needs to follow it. The
+  // element list is not included: the page already knows its own controls.
+  if (path == "/api/ui") {
+    if (request.method != "GET") {
+      respond_json(fd, 405, Json::object());
+    } else if (!shared->options.ui) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "console surface unavailable";
+      respond_json(fd, 503, body);
+    } else {
+      Json body = shared->options.ui->state();
+      body["ok"] = true;
+      respond_json(fd, 200, body);
+    }
+    ::close(fd);
+    return;
+  }
+
+  // A person changing panel is part of the agent's perception: the next frame
+  // shows the screen they are looking at. It also stops driving, so a browser is
+  // not pulled back to a panel the agent opened and then left.
+  if (path == "/api/ui/panel") {
+    if (request.method != "POST") {
+      respond_json(fd, 405, Json::object());
+      ::close(fd);
+      return;
+    }
+    Json input;
+    try {
+      input = Json::parse(request.body);
+    } catch (const JsonError& failure) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = std::string("invalid JSON: ") + failure.what();
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    const std::string panel = input["panel"].as_string();
+    if (panel != "chat" && panel != "activity" && panel != "tools" &&
+        panel != "model" && panel != "home") {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "panel must be chat, activity, tools, model or home";
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    if (shared->options.ui) {
+      shared->options.ui->set_panel(panel, false);
+    }
+    Json body = Json::object();
+    body["ok"] = true;
+    body["panel"] = shared->options.ui ? shared->options.ui->panel() : panel;
+    respond_json(fd, 200, body);
+    ::close(fd);
+    return;
+  }
+
+  // The page's controller, keyboard and mouse move the same surface the agent
+  // drives: a focused control is reported here, so the agent's next frame shows
+  // where the person is. A person's focus ends the agent's follow window, so the
+  // page is not pulled away while they are typing.
+  if (path == "/api/ui/focus") {
+    if (request.method != "POST") {
+      respond_json(fd, 405, Json::object());
+      ::close(fd);
+      return;
+    }
+    if (!shared->options.ui) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "console surface unavailable";
+      respond_json(fd, 503, body);
+      ::close(fd);
+      return;
+    }
+    Json input;
+    try {
+      input = Json::parse(request.body);
+    } catch (const JsonError& failure) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = std::string("invalid JSON: ") + failure.what();
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    const std::string focus = input["focus"].as_string();
+    if (focus.empty()) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "focus must be a control id";
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    Json body = shared->options.ui->focus_element(focus);
+    shared->options.ui->settle();
+    respond_json(fd, body["ok"].as_bool(false) ? 200 : 400, body);
+    ::close(fd);
+    return;
+  }
+
   if (path == "/api/state") {
     if (request.method != "GET") {
       respond_json(fd, 405, Json::object());
     } else {
       respond_json(fd, 200, state_json(*shared));
     }
+    ::close(fd);
+    return;
+  }
+
+  if (path == "/api/model") {
+    if (request.method == "GET") {
+      Json current;
+      {
+        std::lock_guard<std::mutex> lock(shared->model_mutex);
+        current = model_json(shared->model);
+      }
+      Json body = Json::object();
+      body["ok"] = true;
+      body["current"] = current;
+      body["presets"] = model_presets_json();
+      respond_json(fd, 200, body);
+      ::close(fd);
+      return;
+    }
+    if (request.method != "POST") {
+      respond_json(fd, 405, Json::object());
+      ::close(fd);
+      return;
+    }
+    Json input;
+    try {
+      input = Json::parse(request.body);
+    } catch (const JsonError& failure) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = std::string("invalid JSON: ") + failure.what();
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    if (!input.is_object()) {
+      Json body = Json::object();
+      body["ok"] = false;
+      body["error"] = "model settings must be an object";
+      respond_json(fd, 400, body);
+      ::close(fd);
+      return;
+    }
+    int status = 200;
+    const Json body = apply_model_request(shared, input, &status);
+    respond_json(fd, status, body);
     ::close(fd);
     return;
   }
@@ -678,6 +1220,7 @@ void handle_connection(int fd, Shared* shared) {
       ::close(fd);
       return;
     }
+    shared->busy.store(true);
     shared->log("ui user turn (" + std::to_string(message.size()) + " bytes)");
     std::string answer;
     std::string turn_error;
@@ -705,6 +1248,7 @@ void handle_connection(int fd, Shared* shared) {
     context["messages"] = static_cast<long long>(shared->session->message_count());
     context["compactions"] = static_cast<long long>(shared->session->compactions);
     body["context"] = context;
+    shared->busy.store(false);
     respond_json(fd, 200, body);
     ::close(fd);
     return;
@@ -903,6 +1447,7 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   shared->tools = &tools;
   shared->activity = &activity;
   shared->log = log;
+  shared->model = agent.model_config();
   refresh_metadata(shared.get());
 
   // Install this before the first listener opens. A browser can connect as
@@ -949,6 +1494,81 @@ int run_server(const ServerOptions& options, Agent& agent, ChatSession& session,
   shared->home_tile = std::make_unique<HomeTile>(shared->options.home_tile,
                                                  shared->options.http, log);
   shared->home_tile->start();
+
+  // Bind the agent's screen to this process. The view reads live state and the
+  // actions reuse the same code paths as the browser API, so a press cannot do
+  // anything the page could not do. The callback captures a raw pointer: the
+  // server outlives every turn and the surface is owned by `options`.
+  if (shared->options.ui) {
+    Shared* raw = shared.get();
+    shared->options.ui->set_view([raw]() { return console_screen(*raw); });
+    shared->options.ui->set_activate(
+        [raw](const std::string& id, const Json& value) -> Json {
+          auto error = [](const std::string& message) {
+            Json out = Json::object();
+            out["ok"] = false;
+            out["error"] = message;
+            return out;
+          };
+          if (id == "chat:send") {
+            std::unique_lock<std::mutex> lock(raw->chat, std::try_to_lock);
+            if (!lock.owns_lock()) {
+              return error("a turn is already running; the console cannot start a second one");
+            }
+            const std::string message = value["message"].as_string();
+            if (message.empty()) return error("message is empty");
+            raw->busy.store(true);
+            raw->log("ui console turn (" + std::to_string(message.size()) +
+                     " bytes)");
+            std::string answer;
+            std::string turn_error;
+            const bool ok = raw->session->send(*raw->agent, message,
+                                               raw->agent_options, &answer,
+                                               &turn_error);
+            std::string save_error;
+            if (!raw->session->save(raw->options.session_path, &save_error)) {
+              raw->log("session save failed: " + save_error);
+            }
+            refresh_metadata(raw);
+            raw->busy.store(false);
+            Json out = Json::object();
+            out["ok"] = ok;
+            out["answer"] = answer;
+            out["error"] = turn_error;
+            return out;
+          }
+          if (id == "session:reset") {
+            std::unique_lock<std::mutex> lock(raw->chat, std::try_to_lock);
+            if (!lock.owns_lock()) return error("a turn is already running");
+            raw->session->reset(raw->agent_options.system_prompt);
+            std::string save_error;
+            if (!raw->session->save(raw->options.session_path, &save_error)) {
+              raw->log("session save failed: " + save_error);
+            }
+            refresh_metadata(raw);
+            Json out = Json::object();
+            out["ok"] = true;
+            return out;
+          }
+          if (id == "model:apply") {
+            Json input = value;
+            if (input["local"].as_bool(false) &&
+                !input.contains("local_model_path")) {
+              input["local_model_path"] =
+                  raw->agent->model_config().local_model_path;
+            }
+            int status = 200;
+            return apply_model_request(raw, input, &status);
+          }
+          if (id == "home:add" || id == "home:check" || id == "home:remove") {
+            if (!raw->home_tile) return error("home tile manager unavailable");
+            if (id == "home:add") return raw->home_tile->install();
+            if (id == "home:remove") return raw->home_tile->remove();
+            return raw->home_tile->check();
+          }
+          return error("the console surface does not know how to '" + id + "'");
+        });
+  }
 
   const std::string ip = local_address();
   log("browser UI listening on 0.0.0.0:" + std::to_string(port) +

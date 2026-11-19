@@ -588,8 +588,9 @@ and terminated with `SIGTERM`; the loader and the file manager were left alive.
 The final payload was then relaunched on **port 8789**, and ports 8792–8795 are
 closed. At that release, the only harness listener was the documented
 `0.1.0-final` instance on 8789; this is historical and is not the current 8789
-process, which is the `0.1.0-tile` PID 107 described above. The test token is
-not recorded here.
+process, which is the `0.1.0-tile` PID 107 described above. The separately
+verified 2026-11-19 runtime-switch run later uses port 8792; see below. The test
+token is not recorded here.
 
 ### Checks run
 
@@ -828,8 +829,9 @@ PS5. Web Speech works on HTTPS or localhost.
 
 The old 8789 listener was stopped by signalling its individual PID, not by a
 name/group kill. The exact uploaded `0.1.0-input` ELF was then launched on 8789
-with the existing mission config, session and context limit. It is the only
-harness listener; test listeners 8792–8795 remain stopped.
+with the existing mission config, session and context limit. It was the only
+harness listener at that release; the later 2026-11-19 runtime-switch run uses
+8792, and the older listeners were not restarted or reused by it.
 
 ### Checks run
 
@@ -1022,6 +1024,124 @@ function-calling difference, not a weakened harness test.
 funded mission above therefore used the CLI runner. The mission is real-provider
 and multi-step; a chat mission would require a separate entry point.
 
+## Runtime Model panel switch — deployed `0.1.0-71b39c7` (2026-11-19)
+
+The prior UI screenshots were host-side. This run deployed the current UI to the
+console and used the panel itself, not a host preview, to change the provider.
+
+| Item | Value |
+|---|---|
+| Payload | `/data/ps5h-picker.elf` for the test run (removed after verification); canonical `/data/harness.elf` replaced with the same bytes and verified by download |
+| Bytes / sha256 | 9,981,344 / `45b969d90f9eb3a6989185feecbc2fbbba641bcb122e1b4e20ee45e18b40ecce` |
+| Build | `0.1.0-71b39c7` |
+| Config | `/data/ps5h-picker.json` used for the run (removed after verification); startup model `zai-org-glm-5-1`, Venice endpoint |
+| Listener | `8792` (HTTP browser workspace); UDP discovery `8801` |
+| Console log | `/data/ps5h-picker.log` (removed after the excerpt below was recorded) |
+| Selected model after switch | `deepseek-v4-1-flash-uncensored` |
+| Turn result | `CONSOLE-SWITCH-OK`, 1 step, 3,157 prompt + 31 completion = 3,188 tokens |
+
+The deployed page exposed the current **Model & provider** panel. Selecting
+Venice, changing the Model ID to `deepseek-v4-1-flash-uncensored`, and selecting
+**Apply to next turn** changed `/api/state` immediately without a restart:
+
+```text
+[harness] model switch -> deepseek-v4-1-flash-uncensored @ https://api.venice.ai/api/v1
+[harness] ui user turn (116 bytes)
+[harness] provider served model deepseek-v4-1-flash-uncensored
+```
+
+The last line is the provider's returned `model` field, not a local echo of the
+request. The same console process then completed a real Venice turn and returned
+the exact requested text. The temporary key, test config, demo folder, and test
+log were removed after the run. The canonical `/data/harness.elf` is the same
+current build; the live listener remains on 8792 for the panel UI.
+
+**Listener consolidation.** After the evidence was recorded, the stale harness
+processes were retired individually with `SIGTERM` through `ps5h-signal.elf`:
+PID 103 (old 8791/8790 listener), PID 107 (old 8789 listener), and PIDs 114, 115,
+118 and 121 (older non-listening harness instances). A fresh `ps5h-procscan.elf`
+listing then showed only PID 132 (`ps5h-picker.elf`) with the current build.
+Ports 8789, 8790 and 8791 are closed; port 8792 is open. The live process bytes
+are the same current build as canonical `/data/harness.elf`; the temporary
+launch filename was removed after launch, so `/data/harness.elf` is the file to
+use for the next start.
+
+Figures 2 and 3 in `README.md` are captures from this deployed session. Figure 1
+is a prepared figure: it combines six crops from two real screenshots, five from
+the host transcript and one from the console Model panel. It is not one
+continuous session. The full two-lane swarm was not re-run on the console, so
+Figure 1 is not a console performance result. The consolidated listener has no
+provider key, so a new provider turn needs a key supplied through the Model
+panel.
+
+## On-console local model — 2026-11-19
+
+This run removes the cloud provider and PS5LM from the loop. The model runtime
+is linked into `harness.elf` and loads the GGUF from the console's own storage.
+
+**Setup observed on the console:**
+
+- PS5LM was stopped by writing `/data/PS5LM/quit`. Its listener on `:8081` then
+  closed. PS5LM was not used again.
+- `harness.elf` was uploaded to `/data/homebrew/PHAR00001/harness.elf`
+  (27,076,576 bytes,
+  `1787cba1f744c174cb14112b64cf96572b1712a6f598a7be281f27de8f22a68e`).
+- `Qwen3.5-0.8B-Q4_K_M.gguf` was uploaded to
+  `/data/homebrew/PHAR00001/models/` (532,517,120 bytes,
+  `bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517`).
+- `config.console-local.json` was staged as `/data/ps5h-local.json`.
+- The payload was launched directly through elfldr on port 9021 with
+  `--config /data/ps5h-local.json --serve 8787 --serve-token <token>`.
+  This is the payload path, not a title install.
+
+**Startup evidence:**
+
+```text
+[harness] model=local local @ http://127.0.0.1:18081/v1 (no API key)
+[local] opening /data/homebrew/PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf
+[local] model bytes 532517120
+[local] llama.cpp server thread started
+[harness] local model ready: /data/homebrew/PHAR00001/models/Qwen3.5-0.8B-Q4_K_M.gguf on port 18081
+[harness] browser UI listening on 0.0.0.0:8787 (full toolset)
+```
+
+The readiness check saw `503 Service Unavailable` twice while the weights were
+still loading, then HTTP 200. That is why a TCP connect alone is not used.
+
+**First live turn, no key:**
+
+```text
+POST /api/chat {"message":"Reply with exactly: console local model works. Do not call a tool."}
+
+{"answer":"console local model works.","ok":true,"usage":{"completion_tokens":6,"prompt_tokens":2237,"steps":1,"total_tokens":2243}}
+```
+
+Elapsed time: 32.0 seconds for the cold answer.
+
+**Real tool turn, no key:**
+
+```text
+POST /api/reset
+POST /api/chat {"message":"Call the fs_list tool with arguments {\"path\":\"/data/homebrew\"}. Do not write the command as text. Then tell me how many entries were returned."}
+
+[harness] tool fs_list {"path":"/data/homebrew"}
+[harness] provider served model local
+
+{"answer":"11","ok":true,"usage":{"completion_tokens":31,"prompt_tokens":5048,"steps":2,"total_tokens":5079}}
+```
+
+Elapsed time: 14.5 seconds. The answer came from the real directory listing, not
+a guess. The process did not contact a cloud model provider and read no API key.
+
+**What this proves:** the harness can think locally on the console, call its own
+tools, and answer from real console data without a cloud key, a phone, a laptop,
+or a second model app.
+
+**What this does not prove:** the packaged title was not installed and launched
+through the shell. The run above used the payload path. Home-row launch of the
+new local build, rest-mode resume, and sustained multi-turn use remain
+unverified.
+
 ## Still unverified
 
 - Tapping or launching the installed HARN00001 home-row tile. The tile folder is
@@ -1033,9 +1153,9 @@ and multi-step; a chat mission would require a separate entry point.
   versions.
 - USB writes and an app-sandbox write.
 - Peak RSS during a large transfer.
-- Provider-backed turns through the on-console browser UI or a phone session.
-  The capability run used the authenticated `/api/chat` endpoint and the CLI
-  mission runner from a LAN host.
+- A provider-backed swarm or mission through the on-console browser UI. The
+  runtime switch section covers one direct provider turn and one model switch;
+  the capability suite and mission runner were exercised from a LAN host.
 - Re-running the provider capability suite against the final docs-only release
   commit. The provider evidence above is from `0.1.0-8c4903b`, whose code is
   unchanged by the documentation commit.

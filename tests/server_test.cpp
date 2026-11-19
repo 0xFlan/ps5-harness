@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "ps5h/agent.h"
+#include "ps5h/console_ui.h"
 #include "ps5h/core.h"
 #include "ps5h/json.h"
 #include "ps5h/policy.h"
@@ -162,12 +163,19 @@ int child_server(int port, int discovery_port, const std::string& token,
   UrlPolicy policy;
   policy.https_only = false;
   policy.deny_private_ranges = false;
-  HttpFn http = [](const HttpRequest&) -> HttpResponse {
+  HttpFn http = [](const HttpRequest& request) -> HttpResponse {
+    std::string model = "stub";
+    try {
+      const Json body = Json::parse(request.body);
+      model = body["model"].as_string("stub");
+    } catch (...) {
+    }
     HttpResponse response;
     response.status = 200;
     response.body =
         "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":"
-        "\"hello from stub\"}}],\"usage\":{\"prompt_tokens\":3,"
+        "\"hello from " + model +
+        "\"}}],\"usage\":{\"prompt_tokens\":3,"
         "\"completion_tokens\":2,\"total_tokens\":5}}";
     return response;
   };
@@ -190,7 +198,10 @@ int child_server(int port, int discovery_port, const std::string& token,
   server.token = token;
   server.build_id = "test";
   server.model = "stub";
+  server.policy = policy;
   server.context_chars = 8000;
+  // One console surface, as the harness creates for --serve.
+  server.ui = std::make_shared<ConsoleUi>();
   return run_server(server, agent, session, options, registry, activity, quiet);
 }
 
@@ -256,6 +267,9 @@ int main() {
   assert(page_body.find("pad.touches") != std::string::npos);
   assert(page_body.find("SpeechRecognition") != std::string::npos);
   assert(page_body.find("id=\"panel-home\"") != std::string::npos);
+  assert(page_body.find("id=\"panel-model\"") != std::string::npos);
+  assert(page_body.find("Model &amp; provider") != std::string::npos);
+  assert(page_body.find("/api/model") != std::string::npos);
   assert(page_body.find("Home screen app") != std::string::npos);
   assert(page_body.find("/tile-icon.png") != std::string::npos);
   assert(page_body.find("id=\"reconnect\"") != std::string::npos);
@@ -313,13 +327,94 @@ int main() {
       health_json["listener_generation"].as_number();
   assert(generation_before_resume == 1);
 
+  const std::string model_get = request(port, "GET", "/api/model", token);
+  assert(model_get.find("200 OK") != std::string::npos);
+  const Json model_get_json = Json::parse(body_of(model_get));
+  assert(model_get_json["ok"].as_bool());
+  assert(model_get_json["current"]["model"].as_string() == "stub");
+  assert(model_get_json["presets"].is_array());
+  assert(model_get_json["presets"].size() >= 5);
+  assert(model_get_json["presets"][0]["base_url"].is_string());
+  assert(model_get_json["presets"][0]["local"].as_bool(false));
+  assert(model_get_json["current"]["local"].as_bool(true) == false);
+
+  const std::string model_bad = request(
+      port, "POST", "/api/model", token,
+      "{\"base_url\":\"file:///tmp\",\"model\":\"bad\"}");
+  assert(model_bad.find("400 Bad Request") != std::string::npos);
+  assert(body_of(model_bad).find("URL policy") != std::string::npos);
+
+  const std::string model_set = request(
+      port, "POST", "/api/model", token,
+      "{\"base_url\":\"http://127.0.0.1:9/v1\",\"model\":\"switched\","
+      "\"temperature\":0.4,\"max_tokens\":64}");
+  assert(model_set.find("200 OK") != std::string::npos);
+  const Json model_set_json = Json::parse(body_of(model_set));
+  assert(model_set_json["ok"].as_bool());
+  assert(model_set_json["current"]["model"].as_string() == "switched");
+  assert(model_set_json["current"]["max_tokens"].as_number() == 64);
+
+  const std::string state_after_model = request(port, "GET", "/api/state", token);
+  const Json state_after_model_json = Json::parse(body_of(state_after_model));
+  assert(state_after_model_json["model"].as_string() == "switched");
+  assert(state_after_model_json["provider"]["base_url"].as_string() ==
+         "http://127.0.0.1:9/v1");
+
+  const std::string local_bad = request(
+      port, "POST", "/api/model", token,
+      "{\"local\":true,\"base_url\":\"http://192.168.4.100:8081/v1\","
+      "\"local_model_path\":\"/data/homebrew/model.gguf\","
+      "\"model\":\"bad-local\"}");
+  assert(local_bad.find("400 Bad Request") != std::string::npos);
+  assert(body_of(local_bad).find("local model endpoint") != std::string::npos);
+
+  const std::string local_set = request(
+      port, "POST", "/api/model", token,
+      "{\"local\":true,\"base_url\":\"http://127.0.0.1:8081/v1\","
+      "\"local_model_path\":\"/data/homebrew/model.gguf\","
+      "\"model\":\"qwen3.5-0.8b\",\"api_key_env\":\"\"}");
+  assert(local_set.find("200 OK") != std::string::npos);
+  const Json local_set_json = Json::parse(body_of(local_set));
+  assert(local_set_json["ok"].as_bool());
+  assert(local_set_json["current"]["local"].as_bool(false));
+  assert(local_set_json["current"]["base_url"].as_string() ==
+         "http://127.0.0.1:8081/v1");
+
+  const std::string local_restore = request(
+      port, "POST", "/api/model", token,
+      "{\"local\":false,\"base_url\":\"http://127.0.0.1:9/v1\","
+      "\"model\":\"switched\",\"temperature\":0.4,\"max_tokens\":64}");
+  assert(local_restore.find("200 OK") != std::string::npos);
+
+  // The page's focus and the agent's surface are one state. A reported control
+  // moves the surface's panel and focus; an unknown id is refused; and a
+  // person's focus is not the agent driving.
+  const std::string ui_initial = request(port, "GET", "/api/ui", token);
+  assert(ui_initial.find("200 OK") != std::string::npos);
+  assert(Json::parse(body_of(ui_initial))["panel"].as_string() == "activity");
+  const std::string ui_focus =
+      request(port, "POST", "/api/ui/focus", token, "{\"focus\":\"model:id\"}");
+  assert(ui_focus.find("200 OK") != std::string::npos);
+  const Json ui_focus_json = Json::parse(body_of(ui_focus));
+  assert(ui_focus_json["ok"].as_bool(false));
+  assert(ui_focus_json["panel"].as_string() == "model");
+  assert(ui_focus_json["focus"].as_string() == "model:id");
+  const std::string ui_unknown =
+      request(port, "POST", "/api/ui/focus", token, "{\"focus\":\"nope\"}");
+  assert(ui_unknown.find("400 Bad Request") != std::string::npos);
+  const std::string ui_after = request(port, "GET", "/api/ui", token);
+  const Json ui_after_json = Json::parse(body_of(ui_after));
+  assert(ui_after_json["panel"].as_string() == "model");
+  assert(ui_after_json["focus"].as_string() == "model:id");
+  assert(ui_after_json["driving"].as_bool(true) == false);
+
   const std::string chat = request(
       port, "POST", "/api/chat", token,
       "{\"message\":\"server round trip\"}");
   assert(chat.find("200 OK") != std::string::npos);
   const Json chat_json = Json::parse(body_of(chat));
   assert(chat_json["ok"].as_bool(false));
-  assert(chat_json["answer"].as_string() == "hello from stub");
+  assert(chat_json["answer"].as_string() == "hello from switched");
   assert(chat_json["usage"]["total_tokens"].as_number() == 5);
 
   const std::string history = request(port, "GET", "/api/history", token);

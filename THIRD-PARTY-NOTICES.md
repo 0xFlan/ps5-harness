@@ -14,6 +14,11 @@ one of those files is covered by `SHA256SUMS`.
 | xxHash | 0.8.2 (embedded in Zstandard) | BSD 2-Clause | `licenses/xxhash-LICENSE.txt` |
 | libpsl | 0.21.5 | MIT | `licenses/libpsl-COPYING.txt` |
 | Public Suffix List data | snapshot bundled by libpsl 0.21.5 | Mozilla Public License 2.0 | `licenses/public-suffix-list-LICENSE.txt` |
+| llama.cpp and ggml | pinned commit `970b51ce7c9ba5fff0726c5e9994f1c2f0e4eedc` | MIT | `licenses/llama.cpp-LICENSE.txt` |
+| cpp-httplib | bundled with the pinned llama.cpp | MIT | `licenses/cpp-httplib-LICENSE.txt` |
+| nlohmann/json | bundled with the pinned llama.cpp | MIT | `licenses/nlohmann-json-LICENSE.txt` |
+| SHA-256 (vendor/hash) | bundled with the pinned llama.cpp | Public domain | `licenses/sha256-LICENSE.txt` |
+| rotate-bits | bundled with the pinned llama.cpp | MIT | `licenses/rotate-bits-LICENSE.md` |
 | LLVM libc++ | 18.1.0 | Apache-2.0 WITH LLVM-exception | `licenses/libcxx-LICENSE.txt` |
 | LLVM libc++abi | 18.1.0 | Apache-2.0 WITH LLVM-exception | `licenses/libcxxabi-LICENSE.txt` |
 | LLVM libunwind | 18.1.0 | Apache-2.0 WITH LLVM-exception | `licenses/libunwind-LICENSE.txt` |
@@ -30,6 +35,12 @@ The upstream texts were taken from the corresponding release tags:
 - <https://github.com/llvm/llvm-project/blob/llvmorg-18.1.0/libcxx/LICENSE.TXT>
 - <https://github.com/llvm/llvm-project/blob/llvmorg-18.1.0/libcxxabi/LICENSE.TXT>
 - <https://github.com/llvm/llvm-project/blob/llvmorg-18.1.0/libunwind/LICENSE.TXT>
+- <https://github.com/ggml-org/llama.cpp/blob/970b51ce7c9ba5fff0726c5e9994f1c2f0e4eedc/LICENSE>
+- <https://github.com/yhirose/cpp-httplib>
+- <https://github.com/nlohmann/json>
+
+The local inference path links llama.cpp's server, ggml, cpp-httplib and vendor
+hash code into the same binary. They are covered by the rows above.
 
 The payload also has dynamic dependencies on Sony's `libkernel_web.sprx`,
 `libSceLibcInternal.sprx` and `libSceNet.sprx`; those system libraries are not
