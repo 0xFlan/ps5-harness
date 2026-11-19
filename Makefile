@@ -145,6 +145,13 @@ reconnect-test: build/harness
 		echo "reconnect_browser_test: SKIP (node unavailable)"; \
 	fi
 
+# Build a self-hosted user bundle. The package is produced from this checkout;
+# the bundle explicitly excludes .deps, build outputs, configs and secrets.
+release:
+	$(MAKE) -C platform/ps5 clean
+	$(MAKE) -C platform/ps5 package
+	python3 tools/make_release.py
+
 test: build/harness build/harness_e2e build/policy_surface_test build/core_test build/resources_test build/runtime_test build/hardening_test build/agents_test build/skills_test build/recon_test build/mission_test build/session_test build/power_tools_test build/server_test build/home_tile_test build/e2e_agent_test build/ps5_package_test
 	./build/policy_surface_test
 	./build/core_test
@@ -266,4 +273,4 @@ endif
 clean:
 	rm -rf build examples/plugins/hello/hello.so
 
-.PHONY: all test reconnect-test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean
+.PHONY: all test release reconnect-test tools plugin-example fuzz fuzz-run fuzz-libfuzzer sanitize-test leaks-check clean

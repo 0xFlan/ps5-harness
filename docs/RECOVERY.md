@@ -135,10 +135,10 @@ change. A different serving port is selected with `--serve <port>`; when
 auto-install is enabled (the console default), the home tile is rewritten with
 the actual port at startup.
 
-The staged HTTPS certificate's SAN is tied to the old address (currently
-`192.168.4.100`). After an address change, the discovery helper prints the HTTP
-origin; use that, or regenerate the certificate with the new address in its
-SAN before relying on HTTPS.
+The HTTPS certificate's SAN is tied to the address used when it was generated.
+After an address change, the discovery helper prints the HTTP origin; use that,
+or regenerate the certificate with the new address in its SAN before relying on
+HTTPS.
 
 ### Discovery document
 
@@ -160,8 +160,8 @@ It contains only:
   "http_port": 8791,
   "https_port": 8790,
   "started_at": 0,
-  "addresses": ["192.168.4.100"],
-  "urls": ["http://192.168.4.100:8791/"]
+  "addresses": ["<console-ip>"],
+  "urls": ["http://<console-ip>:8791/"]
 }
 ```
 
@@ -194,7 +194,7 @@ python3 tools/ps5h-discover.py
 python3 tools/ps5h-discover.py --wait
 
 # If broadcast is blocked, scan the LAN for the public document
-python3 tools/ps5h-discover.py --subnet 192.168.4.0/24
+python3 tools/ps5h-discover.py --subnet <lan-cidr>
 
 # Print a ready-to-open URL without putting the token in shell history
 PS5H_TOKEN='<token>' python3 tools/ps5h-discover.py

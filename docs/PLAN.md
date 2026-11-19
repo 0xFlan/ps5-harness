@@ -299,7 +299,8 @@ Full threat-model pass against `docs/SECURITY.md`, ASan/UBSan, explicit
 secret-exfiltration and prompt-injection tests, dependency CVE review, then
 release engineering: `SHA256SUMS`, the release zip shaped as
 `<TITLE_ID>/` with `eboot.bin` and `sce_sys/`, a `contentVersion` bump, and the
-catalog PR.
+catalog PR. `make release` now builds the self-hosted bundle and its checksum;
+the catalog submission and the hardware release checklist remain outstanding.
 
 Completion: the submission checklist in `docs/SECURITY.md` is entirely green,
 and the support matrix names the exact firmware and exploit toolchain tested.

@@ -73,6 +73,27 @@ session file (default: `<first write root>/ps5h-session.json`), and
 minimum 4096). The UI is an opt-in mode; without `--serve` the binary still
 does one turn and exits.
 
+### Self-hosted release
+
+The harness has no project-operated backend. Users run the console payload and
+open its LAN workspace themselves; discovery, the page and the API are all
+served by that process. Build a self-contained user bundle with:
+
+```bash
+make release
+# dist/ps5-harness-<version>-<commit>.zip and .zip.sha256
+```
+
+The bundle contains the validated `PHAR00001/` package, `harness.elf`, the
+local discovery helper, examples, a console-ready config, third-party licence
+notices and `START-HERE.md` with
+the local-network launch sequence. It deliberately excludes `.deps`, build
+outputs, configs, secrets and internal console reports. Verify the bundle with
+`SHA256SUMS`; do not expose the LAN listener to the internet. The release build
+needs the pinned payload SDK/PacBrew and LLVM toolchain described in
+[`platform/ps5/BUILD.md`](platform/ps5/BUILD.md). See
+[`docs/RELEASE.md`](docs/RELEASE.md).
+
 Talk to a model (key comes from the environment, never the config file):
 
 ```bash
@@ -394,25 +415,24 @@ certificate and trust steps.
 
 ### HTTPS and microphone trust
 
-The console serves the same token-gated workspace over both schemes. The current
-deployment uses:
+The console serves the same token-gated workspace over both schemes. A typical
+setup uses:
 
 | Item | Value |
 |---|---|
-| HTTPS | `https://192.168.4.100:8790/` |
-| Browser workspace | `0.1.0-tile` (home-screen tile and PS5 chat presentation) |
+| HTTPS | `https://<console-ip>:8790/` |
 | Home tile | `/data/homebrew/HARN00001` (`HARN00001`) |
-| HTTP companion | `http://192.168.4.100:8789/` (current `0.1.0-tile`, PID 107 at the 2026-11-18 17:06 recheck) |
-| New HTTP | `http://192.168.4.100:8791/` (PID 103 at the 2026-11-18 17:06 recheck) |
+| HTTP companion | `http://<console-ip>:8789/` |
+| New HTTP | `http://<console-ip>:8791/` |
 | Certificate | `/data/ps5h-cert.pem` (public) |
 | Private key | `/data/ps5h-key.pem` (keep on the console) |
-| Certificate identity | `CN=PS5 Harness`, SAN `192.168.4.100`, `127.0.0.1`, `localhost` |
-| SHA-256 fingerprint | `8C:80:7E:62:8F:B0:4B:CB:70:25:7C:6A:97:06:43:CD:96:63:24:FF:C7:CA:67:DE:79:32:49:9A:7E:BD:F7:B3` |
+| Certificate identity | `CN=PS5 Harness`, SAN `<console-ip>`, `127.0.0.1`, `localhost` |
 
-The staged certificate's SAN is tied to `192.168.4.100`. If the console gets a
-new DHCP address, use the HTTP listener or regenerate the certificate with the
-new address in its SAN; otherwise HTTPS will show a name-mismatch warning. The
-discovery helper prints the HTTP origin for this reason.
+The certificate's SAN is tied to the address used when it was generated. If the
+console gets a new DHCP address, use the HTTP listener or regenerate the
+certificate with the new address in its SAN; otherwise HTTPS will show a
+name-mismatch warning. The discovery helper prints the HTTP origin for this
+reason.
 
 The certificate is self-signed (and valid as a local root), so treat it as a
 local CA and trust it on the client. Download `/data/ps5h-cert.pem` through the
@@ -430,15 +450,10 @@ the operating system trust store. After trusting it, open the HTTPS URL without
 a certificate warning. Browsers still require the bearer token; TLS does not
 replace authentication.
 
-On the current test Mac the certificate **is imported** into
-`~/Library/Keychains/login.keychain-db`, but the trust approval is still pending:
-`security dump-trust-settings` reports no trust settings and
-`security verify-cert` reports `CSSMERR_TP_NOT_TRUSTED`. macOS opened a
-`SecurityAgent` authorization prompt that an automated session cannot approve.
-Complete that prompt, or open the imported **PS5 Harness** certificate in
-Keychain Access and set **Always Trust** for SSL. Until that user-only step is
-done, the browser test below uses a certificate bypass and does **not** prove
-warning-free trust.
+Trusting a self-signed certificate is a client-side step. If the operating
+system reports that it is not trusted, open the imported **PS5 Harness**
+certificate and set **Always Trust** for SSL. A browser test that bypasses the
+warning does **not** prove warning-free trust.
 
 If the certificate is not trusted, clicking through the warning still yields a
 secure context and the microphone prompt, but that bypass is only for testing;
@@ -461,12 +476,12 @@ publishes a public identity document at `/.well-known/ps5h`:
 
 ```bash
 # Public document; it contains ports/addresses/build/title, never the token.
-curl http://192.168.4.100:8791/.well-known/ps5h
+curl http://<console-ip>:8791/.well-known/ps5h
 
 # Find the console after its IP or port changed.
 python3 tools/ps5h-discover.py
 python3 tools/ps5h-discover.py --wait
-python3 tools/ps5h-discover.py --subnet 192.168.4.0/24   # if UDP is blocked
+python3 tools/ps5h-discover.py --subnet <lan-cidr>   # if UDP is blocked
 ```
 
 The helper, server and browser-runtime tests are host-side only in this tree;

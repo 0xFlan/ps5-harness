@@ -45,9 +45,9 @@ Without them a failure cannot be reproduced.
 
 ## Build and stage
 
-The package is `.deps/ps5-build/PHAR00001/` and contains the real agent
-(`eboot.bin` built from `harness.elf`); `platform/ps5/BUILD.md` lists the
-hashes, dependency pins, console glue and exact commands.
+The release bundle's `PHAR00001/` directory contains the real agent
+(`eboot.bin` built from `harness.elf`) plus its SFO and icon. A source checkout
+has the dependency pins and build commands under `platform/ps5/`.
 
 - [ ] Host OS, LLVM version and payload SDK version recorded.
 - [ ] PacBrew provenance recorded (v0.41.1 bundle sha256, libcurl 8.18.0,
