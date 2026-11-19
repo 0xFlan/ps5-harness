@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <climits>
+#include <cstdint>
 
 namespace ps5h {
 namespace {
